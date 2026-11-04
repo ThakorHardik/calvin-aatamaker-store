@@ -1,14 +1,10 @@
-import { createBrowserClient } from "@supabase/ssr";
-
-export function createSupabaseBrowserClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!url || !key) {
-    throw new Error(
-      "Supabase is not configured yet. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local."
-    );
-  }
-
-  return createBrowserClient(url, key);
-}
+/**
+ * Re-exports the standardized @supabase/ssr browser client from lib/supabase/client.ts.
+ * Preserves createSupabaseBrowserClient for backward compatibility while eliminating
+ * duplicate or competing Supabase client instances.
+ */
+export {
+  createClient as createSupabaseBrowserClient,
+  createClient,
+  supabase,
+} from "./supabase/client";

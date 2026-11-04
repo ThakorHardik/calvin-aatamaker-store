@@ -5,7 +5,11 @@ import { Plus, Minus, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import styles from "./homepage-faq.module.css";
 
-const faqs = [
+interface HomepageFaqProps {
+  content?: Record<string, unknown>;
+}
+
+const defaultFaqs = [
   {
     question: "How do I choose the right Aatamaker?",
     answer:
@@ -33,8 +37,22 @@ const faqs = [
   },
 ];
 
-export default function HomepageFaq() {
+export default function HomepageFaq({ content }: HomepageFaqProps = {}) {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
+
+  // Parse items from CMS content if present
+  let items = defaultFaqs;
+  if (content && Array.isArray(content.items) && content.items.length > 0) {
+    const parsed = (content.items as Array<{ q?: string; a?: string }>).filter(
+      (it) => typeof it?.q === "string" && it.q.trim().length > 0
+    );
+    if (parsed.length > 0) {
+      items = parsed.map((it) => ({
+        question: it.q ?? "",
+        answer: it.a ?? "",
+      }));
+    }
+  }
 
   return (
     <section id="faq" className={styles.section} aria-labelledby="faq-heading">
@@ -60,7 +78,7 @@ export default function HomepageFaq() {
         </div>
 
         <div className={styles.faqList}>
-          {faqs.map((faq, index) => {
+          {items.map((faq, index) => {
             const isOpen = openIndex === index;
             const answerId = `faq-answer-${index}`;
 

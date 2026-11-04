@@ -2,7 +2,11 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import styles from "./homepage-why-calvin.module.css";
 
-const benefits = [
+interface HomepageWhyCalvinProps {
+  content?: Record<string, unknown>;
+}
+
+const defaultBenefits = [
   {
     title: "Understand the product",
     description:
@@ -20,7 +24,31 @@ const benefits = [
   },
 ];
 
-export default function HomepageWhyCalvin() {
+export default function HomepageWhyCalvin({ content }: HomepageWhyCalvinProps = {}) {
+  const heading = typeof content?.heading === "string" && content.heading.trim().length > 0
+    ? content.heading
+    : null;
+  const description = typeof content?.description === "string" && content.description.trim().length > 0
+    ? content.description
+    : "Choosing an Aatamaker starts with knowing what matters to you. Explore the details, understand your options and find a product that feels right for your home.";
+
+  // If custom pillars are defined in CMS content
+  const customBenefits: Array<{ title: string; description: string }> = [];
+  if (content) {
+    for (let i = 1; i <= 4; i++) {
+      const t = content[`pillar${i}_title`];
+      const d = content[`pillar${i}_desc`];
+      if (typeof t === "string" && t.trim().length > 0) {
+        customBenefits.push({
+          title: t.trim(),
+          description: typeof d === "string" ? d.trim() : "",
+        });
+      }
+    }
+  }
+
+  const items = customBenefits.length > 0 ? customBenefits : defaultBenefits;
+
   return (
     <section
       id="why-calvin"
@@ -32,15 +60,19 @@ export default function HomepageWhyCalvin() {
           <p className={styles.eyebrow}>Why Calvin</p>
 
           <h2 id="why-calvin-heading" className={styles.heading}>
-            A better fit for
-            <br />
-            <span>your everyday kitchen.</span>
+            {heading ? (
+              <span>{heading}</span>
+            ) : (
+              <>
+                A better fit for
+                <br />
+                <span>your everyday kitchen.</span>
+              </>
+            )}
           </h2>
 
           <p className={styles.description}>
-            Choosing an Aatamaker starts with knowing what matters to you.
-            Explore the details, understand your options and find a product that
-            feels right for your home.
+            {description}
           </p>
 
           <Link href="/products" className={styles.cta}>
@@ -50,7 +82,7 @@ export default function HomepageWhyCalvin() {
         </div>
 
         <div className={styles.benefits}>
-          {benefits.map((benefit) => (
+          {items.map((benefit) => (
             <article key={benefit.title} className={styles.benefit}>
               <div className={styles.benefitContent}>
                 <h3>{benefit.title}</h3>

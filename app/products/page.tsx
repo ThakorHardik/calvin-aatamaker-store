@@ -1,11 +1,13 @@
 "use client";
 
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowRight,
   Check,
+  RotateCcw,
   Search,
   SlidersHorizontal,
   Wheat,
@@ -45,6 +47,7 @@ type Product = {
   is_featured: boolean;
   sort_order: number;
   categories: {
+    id?: string;
     name: string;
     slug?: string;
   } | null;
@@ -52,6 +55,7 @@ type Product = {
 };
 
 type SortOption = "featured" | "price-low" | "price-high" | "name";
+type PriceFilter = "all" | "under-20k" | "20k-30k" | "above-30k";
 
 function formatINR(value: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -66,34 +70,41 @@ function getProductImage(product: Product): string | null {
     if (a.is_primary !== b.is_primary) {
       return a.is_primary ? -1 : 1;
     }
-
     return a.sort_order - b.sort_order;
   });
 
   const image = images[0];
-
-  if (!image?.storage_path) {
-    return null;
-  }
+  if (!image?.storage_path) return null;
 
   if (/^https?:\/\//i.test(image.storage_path)) {
     return image.storage_path;
   }
 
-  return supabase.storage.from("product-media").getPublicUrl(image.storage_path)
-    .data.publicUrl;
+  const clean = image.storage_path
+    .replace(/^\/+/, "")
+    .replace(/^storage\/v1\/object\/public\/product-media\//, "")
+    .replace(/^product-media\//, "");
+
+  return supabase.storage.from("product-media").getPublicUrl(clean).data
+    .publicUrl;
 }
 
-export default function ProductsPage() {
+function ProductsContent() {
+  const searchParams = useSearchParams();
+
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [query, setQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState("all");
+  const [query, setQuery] = useState(searchParams.get("search") ?? "");
+  const [activeCategory, setActiveCategory] = useState(
+    searchParams.get("category") ?? "all"
+  );
+  const [priceRange, setPriceRange] = useState<PriceFilter>("all");
   const [sortBy, setSortBy] = useState<SortOption>("featured");
-  const [customisableOnly, setCustomisableOnly] = useState(false);
+  const [customisableOnly, setCustomisableOnly] = useState(
+    searchParams.get("customisable") === "true"
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
 
   const loadProducts = useCallback(async () => {
@@ -125,14 +136,14 @@ export default function ProductsPage() {
             is_customisable,
             is_featured,
             sort_order,
-            categories(name, slug),
+            categories(id, name, slug),
             product_images(
               storage_path,
               alt_text,
               is_primary,
               sort_order
             )
-          `,
+          `
           )
           .eq("is_active", true)
           .order("sort_order", { ascending: true })
@@ -150,36 +161,34 @@ export default function ProductsPage() {
       } else {
         setCategories((categoryResult.data ?? []) as Category[]);
       }
-
-      if (categoryResult.error) {
-        console.warn(
-          "Unable to load product categories:",
-          categoryResult.error.message,
-        );
-      }
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "Something went wrong while loading the catalogue.",
+          : "Something went wrong while loading the catalogue."
       );
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Load the catalogue and read any search query from the URL.
   useEffect(() => {
     void loadProducts();
-
-    const params = new URLSearchParams(window.location.search);
-    const initialQuery = params.get("search");
-
-    if (initialQuery) {
-      setQuery(initialQuery);
-    }
   }, [loadProducts, refreshKey]);
 
+  // Sync state if URL changes
+  useEffect(() => {
+    const cat = searchParams.get("category");
+    if (cat) setActiveCategory(cat);
+
+    const s = searchParams.get("search");
+    if (s !== null) setQuery(s);
+
+    const cust = searchParams.get("customisable");
+    if (cust === "true") setCustomisableOnly(true);
+  }, [searchParams]);
+
+  // Filter and sort products
   const visibleProducts = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
@@ -197,15 +206,30 @@ export default function ProductsPage() {
       const matchesQuery =
         !normalizedQuery || searchableText.includes(normalizedQuery);
 
+      // Match category by ID or by slug
       const matchesCategory =
         activeCategory === "all" ||
         (activeCategory === "customisable"
           ? product.is_customisable
-          : product.category_id === activeCategory);
+          : product.category_id === activeCategory ||
+            product.categories?.slug === activeCategory);
 
       const matchesCustomisation = !customisableOnly || product.is_customisable;
 
-      return matchesQuery && matchesCategory && matchesCustomisation;
+      // Price range filtering
+      const price = Number(product.price) || 0;
+      const matchesPrice =
+        priceRange === "all" ||
+        (priceRange === "under-20k" && price < 20000) ||
+        (priceRange === "20k-30k" && price >= 20000 && price <= 30000) ||
+        (priceRange === "above-30k" && price > 30000);
+
+      return (
+        matchesQuery &&
+        matchesCategory &&
+        matchesCustomisation &&
+        matchesPrice
+      );
     });
 
     return filtered.sort((a, b) => {
@@ -224,25 +248,30 @@ export default function ProductsPage() {
           if (a.is_featured !== b.is_featured) {
             return a.is_featured ? -1 : 1;
           }
-
           return a.sort_order - b.sort_order;
       }
     });
-  }, [products, query, activeCategory, customisableOnly, sortBy]);
+  }, [products, query, activeCategory, customisableOnly, priceRange, sortBy]);
 
   function clearFilters() {
     setQuery("");
     setActiveCategory("all");
+    setPriceRange("all");
     setCustomisableOnly(false);
     setSortBy("featured");
 
     window.history.replaceState({}, "", "/products");
   }
 
-  return (
-    <main className="min-h-screen bg-[#faf8f4] text-stone-900">
-      <StorefrontHeader />
+  const hasActiveFilters =
+    query !== "" ||
+    activeCategory !== "all" ||
+    priceRange !== "all" ||
+    customisableOnly ||
+    sortBy !== "featured";
 
+  return (
+    <>
       <section className="border-b border-stone-200 bg-[#f5efe5]">
         <div className="mx-auto max-w-7xl px-5 py-10 sm:py-16 lg:py-20">
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#b91f32]">
@@ -251,22 +280,21 @@ export default function ProductsPage() {
 
           <div className="mt-4 grid gap-6 md:grid-cols-[1fr_340px] md:items-end">
             <div>
-              <h1 className="max-w-3xl text-4xl font-semibold leading-tight tracking-tight sm:text-5xl lg:text-6xl">
+              <h1 className="max-w-3xl text-4xl font-semibold leading-tight tracking-tight sm:text-5xl lg:text-6xl font-display">
                 A better way to bring
                 <br className="hidden sm:block" />{" "}
                 <span className="text-[#b91f32]">freshness home.</span>
               </h1>
 
               <p className="mt-5 max-w-2xl text-sm leading-7 text-stone-600 sm:text-base">
-                Explore our collection of domestic aatamakers. Find product
-                details, check availability and discover the right fit for your
-                kitchen.
+                Explore our collection of domestic aatamakers. Natural
+                stone-ground flour, continuous cooling, and durable engineering
+                made for everyday Indian kitchens.
               </p>
             </div>
 
             <div className="flex items-center gap-3 border-t border-stone-300 pt-5 md:justify-end md:border-t-0 md:pt-0">
               <Wheat size={26} strokeWidth={1.4} className="text-[#b91f32]" />
-
               <div>
                 <p className="text-sm font-semibold">Made for Indian homes</p>
                 <p className="mt-1 text-xs text-stone-500">
@@ -279,13 +307,14 @@ export default function ProductsPage() {
       </section>
 
       <section className="mx-auto max-w-7xl px-5 py-8 sm:py-12">
+        {/* Search & Header Strip */}
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#b91f32]">
               FIND YOUR AATAMAKER
             </p>
 
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl font-display">
               Shop the collection
             </h2>
 
@@ -300,7 +329,6 @@ export default function ProductsPage() {
 
           <label className="flex w-full items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 focus-within:border-[#b91f32] lg:max-w-sm">
             <Search size={18} className="shrink-0 text-stone-400" />
-
             <input
               type="search"
               value={query}
@@ -309,7 +337,6 @@ export default function ProductsPage() {
               aria-label="Search products"
               className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-stone-400"
             />
-
             {query && (
               <button
                 type="button"
@@ -323,8 +350,10 @@ export default function ProductsPage() {
           </label>
         </div>
 
-        <div className="mt-7 flex flex-col gap-4 border-y border-stone-200 py-5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap gap-2">
+        {/* Filter Toolbar */}
+        <div className="mt-7 flex flex-col gap-5 border-y border-stone-200 py-5">
+          {/* Category Pills */}
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setActiveCategory("all")}
@@ -341,8 +370,9 @@ export default function ProductsPage() {
               <button
                 key={category.id}
                 type="button"
-                onClick={() => setActiveCategory(category.id)}
+                onClick={() => setActiveCategory(category.slug || category.id)}
                 className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
+                  activeCategory === category.slug ||
                   activeCategory === category.id
                     ? "border-[#b91f32] bg-[#b91f32] text-white"
                     : "border-stone-300 bg-white text-stone-700 hover:border-[#b91f32]"
@@ -368,46 +398,78 @@ export default function ProductsPage() {
             </button>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <label className="flex items-center gap-2 text-sm text-stone-600">
-              <input
-                type="checkbox"
-                checked={customisableOnly}
-                onChange={(event) => setCustomisableOnly(event.target.checked)}
-                className="h-4 w-4 accent-[#b91f32]"
-              />
-              Customisable only
-            </label>
+          {/* Secondary Controls: Price, Customisable, Sorting */}
+          <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
+            <div className="flex flex-wrap items-center gap-4">
+              {/* Price Filter */}
+              <label className="flex items-center gap-2 text-xs font-medium text-stone-600">
+                <span>Price:</span>
+                <select
+                  value={priceRange}
+                  onChange={(e) => setPriceRange(e.target.value as PriceFilter)}
+                  className="rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-[#b91f32]"
+                >
+                  <option value="all">All Prices</option>
+                  <option value="under-20k">Under ₹20,000</option>
+                  <option value="20k-30k">₹20,000 – ₹30,000</option>
+                  <option value="above-30k">Above ₹30,000</option>
+                </select>
+              </label>
 
-            <label className="flex items-center gap-2 text-sm text-stone-600">
-              <SlidersHorizontal size={16} className="text-stone-500" />
+              {/* Customisable Only */}
+              <label className="flex items-center gap-2 text-xs text-stone-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={customisableOnly}
+                  onChange={(event) =>
+                    setCustomisableOnly(event.target.checked)
+                  }
+                  className="h-4 w-4 rounded accent-[#b91f32]"
+                />
+                <span>Customisable only</span>
+              </label>
+            </div>
 
-              <span className="sr-only">Sort products</span>
+            <div className="flex items-center gap-3">
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-700 hover:text-red-800 transition"
+                >
+                  <RotateCcw size={13} />
+                  <span>Clear all filters</span>
+                </button>
+              )}
 
-              <select
-                value={sortBy}
-                onChange={(event) =>
-                  setSortBy(event.target.value as SortOption)
-                }
-                className="max-w-[190px] rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#b91f32]"
-              >
-                <option value="featured">Featured first</option>
-                <option value="price-low">Price: low to high</option>
-                <option value="price-high">Price: high to low</option>
-                <option value="name">Name: A to Z</option>
-              </select>
-            </label>
+              {/* Sorting */}
+              <label className="flex items-center gap-2 text-xs text-stone-600">
+                <SlidersHorizontal size={14} className="text-stone-500" />
+                <span className="sr-only">Sort products</span>
+                <select
+                  value={sortBy}
+                  onChange={(event) =>
+                    setSortBy(event.target.value as SortOption)
+                  }
+                  className="rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-[#b91f32]"
+                >
+                  <option value="featured">Featured first</option>
+                  <option value="price-low">Price: low to high</option>
+                  <option value="price-high">Price: high to low</option>
+                  <option value="name">Name: A to Z</option>
+                </select>
+              </label>
+            </div>
           </div>
         </div>
 
+        {/* Error Notice */}
         {error && (
           <div className="mt-8 rounded-xl border border-red-200 bg-red-50 p-5">
             <p className="font-semibold text-red-800">
               Unable to load the catalogue
             </p>
-
             <p className="mt-2 text-sm text-red-700">{error}</p>
-
             <button
               type="button"
               onClick={() => setRefreshKey((key) => key + 1)}
@@ -418,9 +480,10 @@ export default function ProductsPage() {
           </div>
         )}
 
+        {/* Loading Skeletons */}
         {loading && !error && (
           <div
-            className="grid grid-cols-1 gap-5 pt-8 sm:grid-cols-2 lg:grid-cols-3"
+            className="grid grid-cols-1 gap-6 pt-8 sm:grid-cols-2 lg:grid-cols-3"
             aria-label="Loading products"
           >
             {[1, 2, 3].map((item) => (
@@ -440,8 +503,9 @@ export default function ProductsPage() {
           </div>
         )}
 
+        {/* Product Grid */}
         {!loading && !error && visibleProducts.length > 0 && (
-          <div className="grid grid-cols-1 gap-5 pt-8 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 pt-8 sm:grid-cols-2 lg:grid-cols-3">
             {visibleProducts.map((product) => {
               const image = getProductImage(product);
               const inStock = product.stock_quantity > 0;
@@ -449,7 +513,7 @@ export default function ProductsPage() {
               return (
                 <article
                   key={product.id}
-                  className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white transition duration-200 hover:-translate-y-1 hover:border-stone-300 hover:shadow-lg"
+                  className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:border-stone-300 hover:shadow-lg"
                 >
                   <Link
                     href={`/products/${product.slug}`}
@@ -462,7 +526,7 @@ export default function ProductsPage() {
                           src={image}
                           alt={
                             product.product_images?.find(
-                              (item) => item.is_primary,
+                              (item) => item.is_primary
                             )?.alt_text || product.name
                           }
                           width={800}
@@ -481,7 +545,7 @@ export default function ProductsPage() {
 
                       <div className="absolute left-3 top-3 flex flex-wrap gap-2">
                         {product.is_featured && (
-                          <span className="rounded-full bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-stone-800 shadow-sm">
+                          <span className="rounded-full bg-stone-900 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm">
                             Featured
                           </span>
                         )}
@@ -499,7 +563,7 @@ export default function ProductsPage() {
                         {product.categories?.name ?? "Aatamaker"}
                       </p>
 
-                      <h3 className="mt-2 text-xl font-semibold leading-snug tracking-tight text-stone-900 transition group-hover:text-[#b91f32]">
+                      <h3 className="mt-2 text-xl font-semibold leading-snug tracking-tight text-stone-900 transition group-hover:text-[#b91f32] font-display">
                         {product.name}
                       </h3>
 
@@ -517,7 +581,7 @@ export default function ProductsPage() {
                         <p className="text-xs text-stone-500">Price</p>
 
                         <div className="mt-1 flex flex-wrap items-baseline gap-2">
-                          <strong className="text-xl font-semibold tracking-tight">
+                          <strong className="text-xl font-semibold tracking-tight font-display">
                             {formatINR(Number(product.price) || 0)}
                           </strong>
 
@@ -544,7 +608,7 @@ export default function ProductsPage() {
                       href={`/products/${product.slug}`}
                       className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#b91f32] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#991b2b]"
                     >
-                      View product
+                      <span>View product</span>
                       <ArrowRight size={16} />
                     </Link>
                   </div>
@@ -554,31 +618,50 @@ export default function ProductsPage() {
           </div>
         )}
 
+        {/* Empty State */}
         {!loading && !error && visibleProducts.length === 0 && (
           <div className="flex flex-col items-center py-16 text-center sm:py-24">
             <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[#f3e8e8] text-[#b91f32]">
               <Search size={24} />
             </span>
 
-            <h3 className="mt-5 text-xl font-semibold">No products found</h3>
+            <h3 className="mt-5 text-xl font-semibold font-display">
+              No products found
+            </h3>
 
             <p className="mt-2 max-w-md text-sm leading-6 text-stone-500">
-              No products match your current search or filters. Try a different
-              term or clear the filters.
+              No products match your current search or filters. Try adjusting
+              your search term, price range, or category.
             </p>
 
             <button
               type="button"
               onClick={clearFilters}
-              className="mt-5 inline-flex items-center gap-2 rounded-xl border border-stone-300 bg-white px-5 py-3 text-sm font-semibold hover:border-[#b91f32] hover:text-[#b91f32]"
+              className="mt-5 inline-flex items-center gap-2 rounded-xl border border-stone-300 bg-white px-5 py-3 text-sm font-semibold hover:border-[#b91f32] hover:text-[#b91f32] transition"
             >
               <Check size={16} />
-              Clear filters
+              <span>Clear all filters</span>
             </button>
           </div>
         )}
       </section>
+    </>
+  );
+}
 
+export default function ProductsPage() {
+  return (
+    <main className="min-h-screen bg-[#faf8f4] text-stone-900">
+      <StorefrontHeader />
+      <Suspense
+        fallback={
+          <div className="py-24 text-center text-sm text-stone-500">
+            Loading collection...
+          </div>
+        }
+      >
+        <ProductsContent />
+      </Suspense>
       <StorefrontFooter />
     </main>
   );

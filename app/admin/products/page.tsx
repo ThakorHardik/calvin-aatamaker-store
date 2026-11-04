@@ -10,6 +10,11 @@ import {
   type FormEvent,
 } from "react";
 import Image from "next/image";
+import Link from "next/link";
+import {
+  type ProductCustomizationConfig,
+  type CustomizationField,
+} from "@/types/customization";
 import { supabase } from "@/lib/supabase/client";
 import {
   AlertCircle,
@@ -17,7 +22,10 @@ import {
   ArrowDown,
   ArrowUp,
   CheckCircle2,
+  ExternalLink,
   ImagePlus,
+  Layers,
+  Sparkles,
   LoaderCircle,
   Package,
   Pencil,
@@ -25,9 +33,11 @@ import {
   RefreshCw,
   Search,
   Tag,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
+import { AdminDialog } from "@/components/admin/admin-dialog";
 
 type Category = {
   id: string;
@@ -37,11 +47,41 @@ type Category = {
   is_active: boolean;
 };
 
+type Admin3DModel = {
+  id: string;
+  model_code: string;
+  model_name: string;
+  status: string;
+  version: number;
+};
+
+type AdminPrintableSurface = {
+  id: string;
+  model_id: string;
+  surface_key: string;
+  surface_name: string;
+  physical_width_mm: number;
+  physical_height_mm: number;
+  status: string;
+};
+
 type ProductImage = {
   id: string;
   storage_path: string;
   alt_text: string | null;
   is_primary: boolean;
+  sort_order: number;
+};
+
+type ProductVariant = {
+  id: string;
+  product_id: string;
+  sku: string | null;
+  name: string;
+  options?: Record<string, unknown>;
+  price: number | null;
+  stock_quantity: number;
+  is_active: boolean;
   sort_order: number;
 };
 
@@ -63,6 +103,11 @@ type Product = {
   sort_order: number;
   categories?: { name: string } | null;
   product_images?: ProductImage[];
+  product_variants?: ProductVariant[];
+  weight_kg?: number | null;
+  meta_title?: string | null;
+  meta_description?: string | null;
+  customization_config?: ProductCustomizationConfig | null;
 };
 
 type ProductForm = {
@@ -77,9 +122,13 @@ type ProductForm = {
   height: string;
   width: string;
   depth: string;
+  weight_kg: string;
+  meta_title: string;
+  meta_description: string;
   is_customisable: boolean;
   is_featured: boolean;
   is_active: boolean;
+  customization_config: ProductCustomizationConfig;
 };
 
 type ExistingGalleryItem = {
@@ -118,9 +167,26 @@ const blankForm: ProductForm = {
   height: "88",
   width: "48",
   depth: "34",
+  weight_kg: "45",
+  meta_title: "",
+  meta_description: "",
   is_customisable: true,
   is_featured: false,
   is_active: false,
+  customization_config: {
+    enabled: true,
+    fields: [],
+    model_id: null,
+    surface_id: null,
+    allow_photo_upload: true,
+    allow_text_tools: true,
+    max_photo_size_mb: 8,
+    allowed_photo_types: ["image/jpeg", "image/png", "image/webp"],
+    max_text_layers: 4,
+    allowed_fonts: ["serif", "sans-serif", "display", "script"],
+    mode: "demonstration",
+    base_customization_price: 0,
+  },
 };
 
 const fieldClass =
@@ -164,6 +230,8 @@ export default function ProductsAdminPage() {
   const [busy, setBusy] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [availableModels, setAvailableModels] = useState<Admin3DModel[]>([]);
+  const [availableSurfaces, setAvailableSurfaces] = useState<AdminPrintableSurface[]>([]);
   const [search, setSearch] = useState("");
   const [activeOnly, setActiveOnly] = useState(false);
   const [categoryName, setCategoryName] = useState("");
@@ -175,6 +243,16 @@ export default function ProductsAdminPage() {
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [primaryKey, setPrimaryKey] = useState("");
   const [isDragging, setIsDragging] = useState(false);
+  const [variantProduct, setVariantProduct] = useState<Product | null>(null);
+  const [variantForm, setVariantForm] = useState({
+    name: "",
+    sku: "",
+    price: "",
+    stock_quantity: "0",
+    is_active: true,
+  });
+  const [editingVariantId, setEditingVariantId] = useState<string | null>(null);
+  const [variantBusy, setVariantBusy] = useState(false);
   const galleryRef = useRef<GalleryItem[]>([]);
 
   useEffect(() => {
@@ -190,12 +268,20 @@ export default function ProductsAdminPage() {
   }, []);
 
   const loadData = useCallback(async () => {
-    const [cat, prod] = await Promise.all([
+    const [cat, prod, mod, surf] = await Promise.all([
       supabase.from("categories").select("*").order("sort_order"),
       supabase
         .from("products")
-        .select("*, categories(name), product_images(*)")
+        .select("*, categories(name), product_images(*), product_variants(*)")
         .order("created_at", { ascending: false }),
+      supabase
+        .from("product_3d_models")
+        .select("id, model_code, model_name, status, version")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("product_printable_surfaces")
+        .select("id, model_id, surface_key, surface_name, physical_width_mm, physical_height_mm, status")
+        .order("created_at"),
     ]);
 
     if (cat.error || prod.error) {
@@ -207,6 +293,8 @@ export default function ProductsAdminPage() {
 
     setCategories((cat.data ?? []) as Category[]);
     setProducts((prod.data ?? []) as unknown as Product[]);
+    setAvailableModels((mod.data ?? []) as Admin3DModel[]);
+    setAvailableSurfaces((surf.data ?? []) as AdminPrintableSurface[]);
   }, []);
 
   const checkAdmin = useCallback(
@@ -391,9 +479,41 @@ export default function ProductsAdminPage() {
       height: product.dimensions_cm?.height ?? "",
       width: product.dimensions_cm?.width ?? "",
       depth: product.dimensions_cm?.depth ?? "",
+      weight_kg: product.weight_kg == null ? "" : String(product.weight_kg),
+      meta_title: product.meta_title ?? "",
+      meta_description: product.meta_description ?? "",
       is_customisable: product.is_customisable,
       is_featured: product.is_featured,
       is_active: product.is_active,
+      customization_config: product.customization_config
+        ? {
+            enabled: product.customization_config.enabled ?? product.is_customisable,
+            fields: product.customization_config.fields ?? [],
+            model_id: product.customization_config.model_id ?? null,
+            surface_id: product.customization_config.surface_id ?? null,
+            allow_photo_upload: product.customization_config.allow_photo_upload ?? true,
+            allow_text_tools: product.customization_config.allow_text_tools ?? true,
+            max_photo_size_mb: product.customization_config.max_photo_size_mb ?? 8,
+            allowed_photo_types: product.customization_config.allowed_photo_types ?? ["image/jpeg", "image/png", "image/webp"],
+            max_text_layers: product.customization_config.max_text_layers ?? 4,
+            allowed_fonts: product.customization_config.allowed_fonts ?? ["serif", "sans-serif", "display", "script"],
+            mode: product.customization_config.mode ?? "demonstration",
+            base_customization_price: product.customization_config.base_customization_price ?? 0,
+          }
+        : {
+            enabled: product.is_customisable,
+            fields: [],
+            model_id: null,
+            surface_id: null,
+            allow_photo_upload: true,
+            allow_text_tools: true,
+            max_photo_size_mb: 8,
+            allowed_photo_types: ["image/jpeg", "image/png", "image/webp"],
+            max_text_layers: 4,
+            allowed_fonts: ["serif", "sans-serif", "display", "script"],
+            mode: "demonstration",
+            base_customization_price: 0,
+          },
     });
     setGallery(savedItems);
     setPrimaryKey(
@@ -440,6 +560,159 @@ export default function ProductsAdminPage() {
     setCategoryDescription("");
     setShowCategoryForm(false);
     setNotice("Category created successfully.");
+  }
+
+  function openVariantManager(product: Product) {
+    setVariantProduct(product);
+    setVariantForm({
+      name: "",
+      sku: "",
+      price: "",
+      stock_quantity: "0",
+      is_active: true,
+    });
+    setEditingVariantId(null);
+  }
+
+  function startEditVariant(variant: ProductVariant) {
+    setEditingVariantId(variant.id);
+    setVariantForm({
+      name: variant.name,
+      sku: variant.sku ?? "",
+      price: variant.price == null ? "" : String(variant.price),
+      stock_quantity: String(variant.stock_quantity),
+      is_active: variant.is_active,
+    });
+  }
+
+  function cancelVariantEdit() {
+    setEditingVariantId(null);
+    setVariantForm({
+      name: "",
+      sku: "",
+      price: "",
+      stock_quantity: "0",
+      is_active: true,
+    });
+  }
+
+  async function saveVariant(e: React.FormEvent) {
+    e.preventDefault();
+    if (!variantProduct) return;
+    if (!variantForm.name.trim()) {
+      setNotice("Variant name is required (e.g. '1 HP Copper Motor' or 'Matte Black Edition').");
+      return;
+    }
+    const priceNum = variantForm.price.trim()
+      ? Number(variantForm.price)
+      : Number(variantProduct.price);
+    const stockNum = Number(variantForm.stock_quantity);
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
+      setNotice("Variant price must be a valid non-negative number.");
+      return;
+    }
+    if (!Number.isInteger(stockNum) || stockNum < 0) {
+      setNotice("Variant stock must be a non-negative whole integer.");
+      return;
+    }
+
+    setVariantBusy(true);
+    setNotice("");
+    try {
+      if (editingVariantId) {
+        const { error } = await supabase
+          .from("product_variants")
+          .update({
+            name: variantForm.name.trim(),
+            sku: variantForm.sku.trim() || null,
+            price: priceNum,
+            stock_quantity: stockNum,
+            is_active: variantForm.is_active,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", editingVariantId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("product_variants")
+          .insert({
+            product_id: variantProduct.id,
+            name: variantForm.name.trim(),
+            sku: variantForm.sku.trim() || null,
+            price: priceNum,
+            stock_quantity: stockNum,
+            is_active: variantForm.is_active,
+          });
+        if (error) throw error;
+      }
+
+      await loadData();
+      const { data: updatedProduct } = await supabase
+        .from("products")
+        .select("*, categories(name), product_images(*), product_variants(*)")
+        .eq("id", variantProduct.id)
+        .single();
+      if (updatedProduct) {
+        setVariantProduct(updatedProduct as unknown as Product);
+      }
+      cancelVariantEdit();
+      setNotice("Variant saved successfully.");
+    } catch (err: unknown) {
+      setNotice(`Failed to save variant: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setVariantBusy(false);
+    }
+  }
+
+  async function deleteVariant(variantId: string) {
+    if (!confirm("Are you sure you want to delete this variant? This cannot be undone.")) return;
+    setVariantBusy(true);
+    try {
+      const { error } = await supabase.from("product_variants").delete().eq("id", variantId);
+      if (error) throw error;
+      await loadData();
+      if (variantProduct) {
+        const { data: updatedProduct } = await supabase
+          .from("products")
+          .select("*, categories(name), product_images(*), product_variants(*)")
+          .eq("id", variantProduct.id)
+          .single();
+        if (updatedProduct) {
+          setVariantProduct(updatedProduct as unknown as Product);
+        }
+      }
+      setNotice("Variant deleted.");
+    } catch (err: unknown) {
+      setNotice(`Failed to delete variant: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setVariantBusy(false);
+    }
+  }
+
+  async function toggleVariantActive(variant: ProductVariant) {
+    setVariantBusy(true);
+    try {
+      const { error } = await supabase
+        .from("product_variants")
+        .update({ is_active: !variant.is_active, updated_at: new Date().toISOString() })
+        .eq("id", variant.id);
+      if (error) throw error;
+      await loadData();
+      if (variantProduct) {
+        const { data: updatedProduct } = await supabase
+          .from("products")
+          .select("*, categories(name), product_images(*), product_variants(*)")
+          .eq("id", variantProduct.id)
+          .single();
+        if (updatedProduct) {
+          setVariantProduct(updatedProduct as unknown as Product);
+        }
+      }
+    } catch (err: unknown) {
+      setNotice(`Failed to update variant: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setVariantBusy(false);
+    }
   }
 
   async function saveProduct(event: FormEvent<HTMLFormElement>) {
@@ -511,22 +784,52 @@ export default function ProductsAdminPage() {
         is_customisable: form.is_customisable,
         is_featured: form.is_featured,
         is_active: form.is_active,
+        weight_kg: form.weight_kg.trim() === "" ? null : Number(form.weight_kg),
+        meta_title: form.meta_title.trim() || null,
+        meta_description: form.meta_description.trim() || null,
+        customization_config: form.is_customisable ? form.customization_config : null,
         updated_at: new Date().toISOString(),
       };
 
       if (editing) {
-        const { error } = await supabase
+        let { error } = await supabase
           .from("products")
           .update(payload)
           .eq("id", editing.id);
+
+        if (error && error.message.includes("customization_config")) {
+          console.warn("customization_config column pending migration, updating without customization_config:", error.message);
+          const safePayload: Record<string, unknown> = { ...payload };
+          delete safePayload.customization_config;
+          const retryRes = await supabase
+            .from("products")
+            .update(safePayload)
+            .eq("id", editing.id);
+          error = retryRes.error;
+        }
+
         if (error) throw error;
       } else {
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from("products")
           .insert({ ...payload, created_by: userId })
           .select("id")
           .single();
-        if (error) throw error;
+
+        if (error && error.message.includes("customization_config")) {
+          console.warn("customization_config column pending migration, inserting without customization_config:", error.message);
+          const safePayload: Record<string, unknown> = { ...payload };
+          delete safePayload.customization_config;
+          const retryRes = await supabase
+            .from("products")
+            .insert({ ...safePayload, created_by: userId })
+            .select("id")
+            .single();
+          data = retryRes.data;
+          error = retryRes.error;
+        }
+
+        if (error || !data) throw error || new Error("Could not determine the product ID.");
         productId = data.id;
         createdProduct = true;
       }
@@ -1010,7 +1313,7 @@ export default function ProductsAdminPage() {
 
               <section className="border-t border-stone-100 pt-6">
                 <h3 className="mb-4 text-base font-bold">Product dimensions</h3>
-                <div className="grid gap-4 sm:grid-cols-3">
+                <div className="grid gap-4 sm:grid-cols-4">
                   <label className="block text-sm font-medium">
                     Height (cm)
                     <input
@@ -1044,11 +1347,54 @@ export default function ProductsAdminPage() {
                       }
                     />
                   </label>
+                  <label className="block text-sm font-medium">
+                    Weight (kg)
+                    <input
+                      className={fieldClass}
+                      inputMode="decimal"
+                      value={form.weight_kg}
+                      onChange={(e) =>
+                        setForm({ ...form, weight_kg: e.target.value })
+                      }
+                      placeholder="e.g. 45"
+                    />
+                  </label>
                 </div>
                 <p className="mt-2 text-xs leading-5 text-stone-500">
                   Sample dimensions are prefilled for convenience. Confirm
                   actual dimensions for each model before publishing.
                 </p>
+              </section>
+
+              <section className="border-t border-stone-100 pt-6">
+                <h3 className="mb-4 text-base font-bold">Search engine optimisation (SEO)</h3>
+                <div className="grid gap-4">
+                  <label className="block text-sm font-medium">
+                    Meta title (optional)
+                    <input
+                      className={fieldClass}
+                      maxLength={120}
+                      value={form.meta_title}
+                      onChange={(e) =>
+                        setForm({ ...form, meta_title: e.target.value })
+                      }
+                      placeholder="e.g. Calvin Classic Automatic Atta Chakki | 100% Fresh Flour"
+                    />
+                  </label>
+                  <label className="block text-sm font-medium">
+                    Meta description (optional)
+                    <textarea
+                      className={fieldClass}
+                      rows={2}
+                      maxLength={320}
+                      value={form.meta_description}
+                      onChange={(e) =>
+                        setForm({ ...form, meta_description: e.target.value })
+                      }
+                      placeholder="e.g. Buy authentic Calvin domestic flour mill for healthy, fresh ghar ka atta. 100% copper motor and child-safe auto stop."
+                    />
+                  </label>
+                </div>
               </section>
 
               <section className="border-t border-stone-100 pt-6">
@@ -1246,10 +1592,668 @@ export default function ProductsAdminPage() {
                     detail="Allow custom artwork for this product"
                     checked={form.is_customisable}
                     onChange={(value) =>
-                      setForm({ ...form, is_customisable: value })
+                      setForm({
+                        ...form,
+                        is_customisable: value,
+                        customization_config: {
+                          ...form.customization_config,
+                          enabled: value,
+                        },
+                      })
                     }
                   />
                 </div>
+
+                {/* Personalisation Studio Builder */}
+                {form.is_customisable && (
+                  <div className="mt-6 rounded-2xl border border-amber-300 bg-amber-50/40 p-5 sm:p-6 space-y-6">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-200/80 pb-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Sparkles size={16} className="text-amber-700" />
+                          <h3 className="font-bold text-sm text-stone-900">
+                            3D Personalisation Studio Configuration
+                          </h3>
+                        </div>
+                        <p className="mt-0.5 text-xs text-stone-600">
+                          Configure associated 3D models, printable front panel dimensions, tool permissions, and option fields.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {editing && (
+                          <Link
+                            href={`/products/${editing.slug}/customize`}
+                            target="_blank"
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50 transition shadow-xs"
+                          >
+                            <ExternalLink size={13} />
+                            Preview Studio
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Section 1: Associated 3D Model & Printable Surface */}
+                    <div className="grid gap-4 sm:grid-cols-2 rounded-xl border border-amber-200/90 bg-white p-4">
+                      <div>
+                        <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider">
+                          Associated 3D Machine Model
+                        </label>
+                        <select
+                          value={form.customization_config.model_id ?? ""}
+                          onChange={(e) => {
+                            const nextModelId = e.target.value || null;
+                            const matchedSurfaces = availableSurfaces.filter((s) => s.model_id === nextModelId);
+                            setForm((prev) => ({
+                              ...prev,
+                              customization_config: {
+                                ...prev.customization_config,
+                                model_id: nextModelId,
+                                surface_id: matchedSurfaces[0]?.id ?? null,
+                              },
+                            }));
+                          }}
+                          className="mt-1.5 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-xs font-medium outline-none focus:border-red-700"
+                        >
+                          <option value="">None / Generic Configurator</option>
+                          {availableModels.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.model_code} — {m.model_name} (v{m.version})
+                            </option>
+                          ))}
+                        </select>
+                        {(() => {
+                          const selectedModel = availableModels.find((m) => m.id === form.customization_config.model_id);
+                          if (!selectedModel) return null;
+                          return (
+                            <p className="mt-1.5 text-[11px] text-amber-800 flex items-center gap-1">
+                              <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-600" />
+                              Status: <span className="font-semibold uppercase">{selectedModel.status}</span> (Provisional dimensions: 480 × 340 × 880 mm)
+                            </p>
+                          );
+                        })()}
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider">
+                          Printable Surface Target
+                        </label>
+                        <select
+                          value={form.customization_config.surface_id ?? ""}
+                          onChange={(e) => {
+                            const nextSurfaceId = e.target.value || null;
+                            setForm((prev) => ({
+                              ...prev,
+                              customization_config: {
+                                ...prev.customization_config,
+                                surface_id: nextSurfaceId,
+                              },
+                            }));
+                          }}
+                          className="mt-1.5 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-xs font-medium outline-none focus:border-red-700"
+                        >
+                          <option value="">Default Front Surface</option>
+                          {availableSurfaces
+                            .filter((s) => !form.customization_config.model_id || s.model_id === form.customization_config.model_id)
+                            .map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.surface_name} ({s.physical_width_mm} × {s.physical_height_mm} mm)
+                              </option>
+                            ))}
+                        </select>
+                        <p className="mt-1.5 text-[11px] text-stone-500">
+                          Front panel geometry, UV mapping, safe print margins &amp; locked CALVIN logo.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Section 2: Studio Tools & Permissions */}
+                    <div className="rounded-xl border border-amber-200/90 bg-white p-4 space-y-4">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-stone-800">
+                        Customer Studio Tools &amp; Upload Limits
+                      </h4>
+
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <label className="flex items-start gap-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={form.customization_config.allow_photo_upload ?? true}
+                            onChange={(e) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                customization_config: {
+                                  ...prev.customization_config,
+                                  allow_photo_upload: e.target.checked,
+                                },
+                              }))
+                            }
+                            className="mt-0.5 h-4 w-4 rounded text-red-700 focus:ring-red-500"
+                          />
+                          <div>
+                            <span className="text-xs font-semibold text-stone-900 block">Photo Uploads</span>
+                            <span className="text-[11px] text-stone-500">Allow customers to upload custom images</span>
+                          </div>
+                        </label>
+
+                        <label className="flex items-start gap-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={form.customization_config.allow_text_tools ?? true}
+                            onChange={(e) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                customization_config: {
+                                  ...prev.customization_config,
+                                  allow_text_tools: e.target.checked,
+                                },
+                              }))
+                            }
+                            className="mt-0.5 h-4 w-4 rounded text-red-700 focus:ring-red-500"
+                          />
+                          <div>
+                            <span className="text-xs font-semibold text-stone-900 block">Custom Text Tools</span>
+                            <span className="text-[11px] text-stone-500">Allow customer typography &amp; slogans</span>
+                          </div>
+                        </label>
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-stone-700">
+                            Base Personalisation Fee (₹)
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="50"
+                            value={form.customization_config.base_customization_price ?? 0}
+                            onChange={(e) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                customization_config: {
+                                  ...prev.customization_config,
+                                  base_customization_price: Math.max(0, Number(e.target.value) || 0),
+                                },
+                              }))
+                            }
+                            className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-red-700"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-stone-700">
+                            Max Photo Size (MB)
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="20"
+                            value={form.customization_config.max_photo_size_mb ?? 8}
+                            onChange={(e) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                customization_config: {
+                                  ...prev.customization_config,
+                                  max_photo_size_mb: Math.max(1, Math.min(20, Number(e.target.value) || 8)),
+                                },
+                              }))
+                            }
+                            className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-red-700"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-stone-700">
+                            Max Text Layers (1 - 5)
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="5"
+                            value={form.customization_config.max_text_layers ?? 4}
+                            onChange={(e) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                customization_config: {
+                                  ...prev.customization_config,
+                                  max_text_layers: Math.max(1, Math.min(5, Number(e.target.value) || 4)),
+                                },
+                              }))
+                            }
+                            className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-red-700"
+                          />
+                        </div>
+
+                        <div>
+                          <span className="block text-[11px] font-bold text-stone-700">
+                            Personalisation Mode
+                          </span>
+                          <div className="mt-1 flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-900">
+                            <AlertCircle size={13} className="shrink-0 text-amber-700" />
+                            <span>Demonstration Mode</span>
+                          </div>
+                          <p className="mt-1 text-[10px] text-stone-500">
+                            Locked to demonstration mode. Factory caliper measurements required before production export can be enabled.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Section 3: Option Fields Builder (Finishes, Engravings, Sieves) */}
+                    <div className="border-t border-amber-200/80 pt-4">
+                      <div className="flex items-center justify-between pb-3">
+                        <div>
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-stone-800">
+                            Option Fields &amp; Price Deltas
+                          </h4>
+                          <p className="text-[11px] text-stone-500">
+                            Add drop-downs or color swatches for veneer finishes, laser engraving text, or sieves.
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newField: CustomizationField = {
+                              id: `field_${Date.now().toString(36)}`,
+                              type: "select",
+                              label: "New Option Field",
+                              help_text: "",
+                              required: false,
+                              options: [
+                                {
+                                  id: `opt_${Date.now().toString(36)}_1`,
+                                  value: "standard",
+                                  label: "Standard Choice",
+                                  price_delta: 0,
+                                },
+                              ],
+                            };
+                            setForm((prev) => ({
+                              ...prev,
+                              customization_config: {
+                                ...prev.customization_config,
+                                fields: [...(prev.customization_config.fields || []), newField],
+                              },
+                            }));
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-amber-900 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-amber-800 transition shadow-xs"
+                        >
+                          <Plus size={14} /> Add Option Field
+                        </button>
+                      </div>
+                    </div>
+
+                    {(!form.customization_config.fields || form.customization_config.fields.length === 0) ? (
+                      <div className="rounded-xl border border-dashed border-amber-300 bg-white p-6 text-center text-xs text-stone-500">
+                        <Sparkles size={24} className="mx-auto text-amber-600 mb-2" />
+                        <p className="font-semibold text-stone-800">No personalisation fields added yet.</p>
+                        <p className="mt-1 text-stone-500">
+                          Click &quot;Add Personalisation Field&quot; to configure custom finishes, engraving, or choices for this machine.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {form.customization_config.fields.map((field, fieldIdx) => (
+                          <div
+                            key={field.id}
+                            className="rounded-xl border border-stone-200 bg-white p-4 shadow-xs space-y-4"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 pb-2.5">
+                              <span className="flex items-center gap-2 text-xs font-bold text-stone-800">
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-stone-100 text-[10px] text-stone-600">
+                                  {fieldIdx + 1}
+                                </span>
+                                <span>{field.label || "Untitled Field"}</span>
+                                <span className="text-[10px] font-mono text-stone-400">({field.id})</span>
+                              </span>
+
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  disabled={fieldIdx === 0}
+                                  onClick={() => {
+                                    if (fieldIdx === 0) return;
+                                    const nextFields = [...form.customization_config.fields];
+                                    const temp = nextFields[fieldIdx];
+                                    nextFields[fieldIdx] = nextFields[fieldIdx - 1];
+                                    nextFields[fieldIdx - 1] = temp;
+                                    setForm((prev) => ({
+                                      ...prev,
+                                      customization_config: { ...prev.customization_config, fields: nextFields },
+                                    }));
+                                  }}
+                                  className="p-1 rounded-lg hover:bg-stone-100 text-stone-500 disabled:opacity-30"
+                                  title="Move Up"
+                                >
+                                  <ArrowUp size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={fieldIdx === form.customization_config.fields.length - 1}
+                                  onClick={() => {
+                                    if (fieldIdx === form.customization_config.fields.length - 1) return;
+                                    const nextFields = [...form.customization_config.fields];
+                                    const temp = nextFields[fieldIdx];
+                                    nextFields[fieldIdx] = nextFields[fieldIdx + 1];
+                                    nextFields[fieldIdx + 1] = temp;
+                                    setForm((prev) => ({
+                                      ...prev,
+                                      customization_config: { ...prev.customization_config, fields: nextFields },
+                                    }));
+                                  }}
+                                  className="p-1 rounded-lg hover:bg-stone-100 text-stone-500 disabled:opacity-30"
+                                  title="Move Down"
+                                >
+                                  <ArrowDown size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextFields = form.customization_config.fields.filter((_, idx) => idx !== fieldIdx);
+                                    setForm((prev) => ({
+                                      ...prev,
+                                      customization_config: { ...prev.customization_config, fields: nextFields },
+                                    }));
+                                  }}
+                                  className="p-1 rounded-lg hover:bg-red-50 text-red-600 ml-1"
+                                  title="Delete Field"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <div>
+                                <label className="block text-[11px] font-semibold text-stone-600 mb-1">
+                                  Field Label
+                                </label>
+                                <input
+                                  type="text"
+                                  value={field.label}
+                                  onChange={(e) => {
+                                    const nextFields = [...form.customization_config.fields];
+                                    nextFields[fieldIdx] = { ...nextFields[fieldIdx], label: e.target.value };
+                                    setForm((prev) => ({
+                                      ...prev,
+                                      customization_config: { ...prev.customization_config, fields: nextFields },
+                                    }));
+                                  }}
+                                  className="w-full rounded-xl border border-stone-300 px-3 py-1.5 text-xs outline-none focus:border-red-700"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[11px] font-semibold text-stone-600 mb-1">
+                                  Field Identifier (Slug)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={field.id}
+                                  onChange={(e) => {
+                                    const nextFields = [...form.customization_config.fields];
+                                    nextFields[fieldIdx] = {
+                                      ...nextFields[fieldIdx],
+                                      id: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""),
+                                    };
+                                    setForm((prev) => ({
+                                      ...prev,
+                                      customization_config: { ...prev.customization_config, fields: nextFields },
+                                    }));
+                                  }}
+                                  className="w-full rounded-xl border border-stone-300 px-3 py-1.5 text-xs font-mono outline-none focus:border-red-700"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[11px] font-semibold text-stone-600 mb-1">
+                                  Field Input Type
+                                </label>
+                                <select
+                                  value={field.type}
+                                  onChange={(e) => {
+                                    const nextFields = [...form.customization_config.fields];
+                                    const newType = e.target.value as CustomizationField["type"];
+                                    nextFields[fieldIdx] = {
+                                      ...nextFields[fieldIdx],
+                                      type: newType,
+                                      options: ["select", "swatch"].includes(newType)
+                                        ? nextFields[fieldIdx].options?.length ? nextFields[fieldIdx].options : [{ id: `opt_${Date.now()}_1`, value: "standard", label: "Standard Option", price_delta: 0 }]
+                                        : undefined,
+                                    };
+                                    setForm((prev) => ({
+                                      ...prev,
+                                      customization_config: { ...prev.customization_config, fields: nextFields },
+                                    }));
+                                  }}
+                                  className="w-full rounded-xl border border-stone-300 px-3 py-1.5 text-xs outline-none focus:border-red-700 bg-white"
+                                >
+                                  <option value="select">Dropdown Select</option>
+                                  <option value="swatch">Color / Material Swatch</option>
+                                  <option value="text">Single Line Text (Laser Engraving)</option>
+                                  <option value="long_text">Multi-Line Long Text (Notes)</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <div className="sm:col-span-2">
+                                <label className="block text-[11px] font-semibold text-stone-600 mb-1">
+                                  Help & Guidance Text
+                                </label>
+                                <input
+                                  type="text"
+                                  value={field.help_text || ""}
+                                  placeholder="e.g. Laser-etched onto front hopper stainless-steel panel"
+                                  onChange={(e) => {
+                                    const nextFields = [...form.customization_config.fields];
+                                    nextFields[fieldIdx] = { ...nextFields[fieldIdx], help_text: e.target.value };
+                                    setForm((prev) => ({
+                                      ...prev,
+                                      customization_config: { ...prev.customization_config, fields: nextFields },
+                                    }));
+                                  }}
+                                  className="w-full rounded-xl border border-stone-300 px-3 py-1.5 text-xs outline-none focus:border-red-700"
+                                />
+                              </div>
+
+                              <div className="flex items-center gap-4 pt-4">
+                                <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-stone-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={field.required}
+                                    onChange={(e) => {
+                                      const nextFields = [...form.customization_config.fields];
+                                      nextFields[fieldIdx] = { ...nextFields[fieldIdx], required: e.target.checked };
+                                      setForm((prev) => ({
+                                        ...prev,
+                                        customization_config: { ...prev.customization_config, fields: nextFields },
+                                      }));
+                                    }}
+                                    className="rounded border-stone-300 text-red-700 focus:ring-red-700"
+                                  />
+                                  <span>Required Field</span>
+                                </label>
+
+                                {["text", "long_text"].includes(field.type) && (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[11px] text-stone-500">Max Chars:</span>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={500}
+                                      value={field.max_length || 30}
+                                      onChange={(e) => {
+                                        const nextFields = [...form.customization_config.fields];
+                                        nextFields[fieldIdx] = { ...nextFields[fieldIdx], max_length: Number(e.target.value) || 30 };
+                                        setForm((prev) => ({
+                                          ...prev,
+                                          customization_config: { ...prev.customization_config, fields: nextFields },
+                                        }));
+                                      }}
+                                      className="w-16 rounded-lg border border-stone-300 px-2 py-1 text-xs outline-none focus:border-red-700"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Option list for select and swatch types */}
+                            {["select", "swatch"].includes(field.type) && (
+                              <div className="border-t border-stone-100 pt-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] font-bold uppercase tracking-wider text-stone-600">
+                                    Available Choice Options
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const nextFields = [...form.customization_config.fields];
+                                      const opts = [...(nextFields[fieldIdx].options || [])];
+                                      opts.push({
+                                        id: `opt_${Date.now()}_${opts.length + 1}`,
+                                        value: `choice_${opts.length + 1}`,
+                                        label: `Choice ${opts.length + 1}`,
+                                        price_delta: 0,
+                                        swatch_color: field.type === "swatch" ? "#8B4513" : undefined,
+                                      });
+                                      nextFields[fieldIdx] = { ...nextFields[fieldIdx], options: opts };
+                                      setForm((prev) => ({
+                                        ...prev,
+                                        customization_config: { ...prev.customization_config, fields: nextFields },
+                                      }));
+                                    }}
+                                    className="text-[11px] font-bold text-red-700 hover:text-red-900"
+                                  >
+                                    + Add Option Choice
+                                  </button>
+                                </div>
+
+                                <div className="space-y-2">
+                                  {field.options?.map((opt, optIdx) => (
+                                    <div
+                                      key={opt.id || opt.value || optIdx}
+                                      className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center rounded-lg border border-stone-200 bg-stone-50/50 p-2 text-xs"
+                                    >
+                                      <div className="sm:col-span-4">
+                                        <input
+                                          type="text"
+                                          placeholder="Option Label (e.g. Teakwood)"
+                                          value={opt.label}
+                                          onChange={(e) => {
+                                            const nextFields = [...form.customization_config.fields];
+                                            const opts = [...(nextFields[fieldIdx].options || [])];
+                                            opts[optIdx] = { ...opts[optIdx], label: e.target.value };
+                                            nextFields[fieldIdx] = { ...nextFields[fieldIdx], options: opts };
+                                            setForm((prev) => ({
+                                              ...prev,
+                                              customization_config: { ...prev.customization_config, fields: nextFields },
+                                            }));
+                                          }}
+                                          className="w-full rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs outline-none"
+                                        />
+                                      </div>
+
+                                      <div className="sm:col-span-3">
+                                        <input
+                                          type="text"
+                                          placeholder="Value slug"
+                                          value={opt.value}
+                                          onChange={(e) => {
+                                            const nextFields = [...form.customization_config.fields];
+                                            const opts = [...(nextFields[fieldIdx].options || [])];
+                                            opts[optIdx] = {
+                                              ...opts[optIdx],
+                                              value: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""),
+                                            };
+                                            nextFields[fieldIdx] = { ...nextFields[fieldIdx], options: opts };
+                                            setForm((prev) => ({
+                                              ...prev,
+                                              customization_config: { ...prev.customization_config, fields: nextFields },
+                                            }));
+                                          }}
+                                          className="w-full rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs font-mono outline-none"
+                                        />
+                                      </div>
+
+                                      {field.type === "swatch" && (
+                                        <div className="sm:col-span-2 flex items-center gap-1.5">
+                                          <input
+                                            type="color"
+                                            value={opt.swatch_color || "#8B4513"}
+                                            onChange={(e) => {
+                                              const nextFields = [...form.customization_config.fields];
+                                              const opts = [...(nextFields[fieldIdx].options || [])];
+                                              opts[optIdx] = { ...opts[optIdx], swatch_color: e.target.value };
+                                              nextFields[fieldIdx] = { ...nextFields[fieldIdx], options: opts };
+                                              setForm((prev) => ({
+                                                ...prev,
+                                                customization_config: { ...prev.customization_config, fields: nextFields },
+                                              }));
+                                            }}
+                                            className="h-7 w-7 rounded-md border border-stone-300 p-0.5 cursor-pointer bg-white"
+                                          />
+                                          <span className="text-[10px] font-mono text-stone-500 truncate">
+                                            {opt.swatch_color || "#8B4513"}
+                                          </span>
+                                        </div>
+                                      )}
+
+                                      <div className={field.type === "swatch" ? "sm:col-span-2" : "sm:col-span-4"}>
+                                        <div className="flex items-center gap-1">
+                                          <span className="text-stone-400 text-xs">+₹</span>
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            placeholder="Price adjustment"
+                                            value={opt.price_delta || ""}
+                                            onChange={(e) => {
+                                              const nextFields = [...form.customization_config.fields];
+                                              const opts = [...(nextFields[fieldIdx].options || [])];
+                                              opts[optIdx] = {
+                                                ...opts[optIdx],
+                                                price_delta: Math.max(0, Number(e.target.value) || 0),
+                                              };
+                                              nextFields[fieldIdx] = { ...nextFields[fieldIdx], options: opts };
+                                              setForm((prev) => ({
+                                                ...prev,
+                                                customization_config: { ...prev.customization_config, fields: nextFields },
+                                              }));
+                                            }}
+                                            className="w-full rounded-lg border border-stone-300 bg-white px-2 py-1 text-xs outline-none"
+                                          />
+                                        </div>
+                                      </div>
+
+                                      <div className="sm:col-span-1 flex justify-end">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const nextFields = [...form.customization_config.fields];
+                                            const opts = nextFields[fieldIdx].options?.filter((_, oIdx) => oIdx !== optIdx);
+                                            nextFields[fieldIdx] = { ...nextFields[fieldIdx], options: opts };
+                                            setForm((prev) => ({
+                                              ...prev,
+                                              customization_config: { ...prev.customization_config, fields: nextFields },
+                                            }));
+                                          }}
+                                          className="p-1 rounded text-stone-400 hover:text-red-600"
+                                          title="Remove Option"
+                                        >
+                                          <Trash2 size={13} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </section>
 
               <div className="flex flex-wrap justify-end gap-3 border-t border-stone-100 pt-5">
@@ -1418,6 +2422,12 @@ export default function ProductsAdminPage() {
                         <td className="px-5 py-4">
                           <div className="flex justify-end gap-2">
                             <button
+                              onClick={() => openVariantManager(product)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 px-3 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50"
+                            >
+                              <Layers size={13} /> Variants ({product.product_variants?.length ?? 0})
+                            </button>
+                            <button
                               onClick={() => openEditProduct(product)}
                               className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 px-3 py-2 text-xs font-semibold hover:bg-white"
                             >
@@ -1442,6 +2452,192 @@ export default function ProductsAdminPage() {
           )}
         </section>
       </div>
+
+      <AdminDialog
+        isOpen={Boolean(variantProduct)}
+        onClose={() => {
+          setVariantProduct(null);
+          cancelVariantEdit();
+        }}
+        title={`Variants — ${variantProduct?.name ?? ""}`}
+        description="Manage engine models, motor capacities, finishes, or custom variant options and SKU overrides."
+        maxWidth="2xl"
+      >
+        <div className="space-y-6">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-bold text-stone-900">
+                Configured variants ({variantProduct?.product_variants?.length ?? 0})
+              </h4>
+              {editingVariantId && (
+                <button
+                  type="button"
+                  onClick={cancelVariantEdit}
+                  className="text-xs font-semibold text-stone-500 hover:text-stone-900"
+                >
+                  + Add new variant instead
+                </button>
+              )}
+            </div>
+
+            {(!variantProduct?.product_variants || variantProduct.product_variants.length === 0) ? (
+              <div className="rounded-xl border border-dashed border-stone-300 p-6 text-center">
+                <Layers className="mx-auto h-8 w-8 text-stone-400" />
+                <p className="mt-2 text-sm font-medium text-stone-700">No variants created yet</p>
+                <p className="mt-1 text-xs text-stone-500">
+                  This product sells as a single standard item. Use the form below to add variant options like motor horsepower or finish.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-stone-200">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-stone-50 font-bold uppercase tracking-wider text-stone-500 border-b border-stone-200">
+                    <tr>
+                      <th className="px-3 py-2.5">Variant name</th>
+                      <th className="px-3 py-2.5">SKU</th>
+                      <th className="px-3 py-2.5">Price override</th>
+                      <th className="px-3 py-2.5">Stock</th>
+                      <th className="px-3 py-2.5">Status</th>
+                      <th className="px-3 py-2.5 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    {variantProduct.product_variants.map((v) => (
+                      <tr key={v.id} className={editingVariantId === v.id ? "bg-red-50/50" : "hover:bg-stone-50/60"}>
+                        <td className="px-3 py-2.5 font-semibold text-stone-900">{v.name}</td>
+                        <td className="px-3 py-2.5 text-stone-500">{v.sku || "—"}</td>
+                        <td className="px-3 py-2.5 font-medium text-stone-900">
+                          {v.price != null ? money(Number(v.price)) : money(Number(variantProduct.price))}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className={v.stock_quantity === 0 ? "font-bold text-red-700" : "text-stone-700"}>
+                            {v.stock_quantity}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${v.is_active ? "bg-emerald-50 text-emerald-700" : "bg-stone-100 text-stone-500"}`}>
+                            {v.is_active ? "Active" : "Disabled"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => startEditVariant(v)}
+                              className="rounded p-1 text-stone-500 hover:bg-stone-200 hover:text-stone-900"
+                              title="Edit"
+                            >
+                              <Pencil size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={variantBusy}
+                              onClick={() => void toggleVariantActive(v)}
+                              className="rounded px-1.5 py-0.5 text-[10px] font-semibold border border-stone-300 hover:bg-stone-100 disabled:opacity-50"
+                            >
+                              {v.is_active ? "Disable" : "Enable"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={variantBusy}
+                              onClick={() => void deleteVariant(v.id)}
+                              className="rounded p-1 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                              title="Delete"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <form onSubmit={saveVariant} className="rounded-xl border border-stone-200 bg-stone-50/70 p-4 space-y-4">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-red-700">
+              {editingVariantId ? "Edit variant" : "Add a new variant"}
+            </h4>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-xs font-medium text-stone-700">
+                Variant Name *
+                <input
+                  required
+                  className={fieldClass}
+                  value={variantForm.name}
+                  onChange={(e) => setVariantForm({ ...variantForm, name: e.target.value })}
+                  placeholder="e.g. 1.25 HP Copper Motor"
+                />
+              </label>
+              <label className="block text-xs font-medium text-stone-700">
+                Variant SKU (optional)
+                <input
+                  className={fieldClass}
+                  value={variantForm.sku}
+                  onChange={(e) => setVariantForm({ ...variantForm, sku: e.target.value })}
+                  placeholder="e.g. CAL-AT-001-125HP"
+                />
+              </label>
+              <label className="block text-xs font-medium text-stone-700">
+                Selling price (₹)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className={fieldClass}
+                  value={variantForm.price}
+                  onChange={(e) => setVariantForm({ ...variantForm, price: e.target.value })}
+                  placeholder={`Base price (${money(Number(variantProduct?.price ?? 0))})`}
+                />
+              </label>
+              <label className="block text-xs font-medium text-stone-700">
+                Stock quantity *
+                <input
+                  required
+                  type="number"
+                  min="0"
+                  step="1"
+                  className={fieldClass}
+                  value={variantForm.stock_quantity}
+                  onChange={(e) => setVariantForm({ ...variantForm, stock_quantity: e.target.value })}
+                />
+              </label>
+            </div>
+            <div className="flex items-center justify-between pt-2">
+              <label className="flex items-center gap-2 text-xs font-medium text-stone-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={variantForm.is_active}
+                  onChange={(e) => setVariantForm({ ...variantForm, is_active: e.target.checked })}
+                  className="rounded text-red-700 accent-red-700"
+                />
+                Variant is active and purchasable
+              </label>
+              <div className="flex items-center gap-2">
+                {editingVariantId && (
+                  <button
+                    type="button"
+                    onClick={cancelVariantEdit}
+                    className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-stone-50"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  disabled={variantBusy}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-red-700 px-4 py-1.5 text-xs font-semibold text-white hover:bg-red-800 disabled:opacity-50"
+                >
+                  {variantBusy && <LoaderCircle size={12} className="animate-spin" />}
+                  {editingVariantId ? "Update variant" : "Add variant"}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </AdminDialog>
     </main>
   );
 }

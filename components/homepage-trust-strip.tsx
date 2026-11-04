@@ -1,6 +1,10 @@
-import { BadgeCheck, Heart, SlidersHorizontal, Truck } from "lucide-react";
+import { BadgeCheck, Heart, SlidersHorizontal, Truck, ShieldCheck } from "lucide-react";
 
-const highlights = [
+interface HomepageTrustStripProps {
+  content?: Record<string, unknown>;
+}
+
+const defaultHighlights = [
   {
     icon: BadgeCheck,
     title: "Carefully considered",
@@ -23,10 +27,37 @@ const highlights = [
   },
 ];
 
-export default function HomepageTrustStrip() {
+export default function HomepageTrustStrip({ content }: HomepageTrustStripProps = {}) {
+  // If content with custom badges is supplied from CMS, render dynamic highlights
+  let items = defaultHighlights;
+
+  if (content && (content.badge1 || content.badge2 || content.badge3 || content.badge4)) {
+    const icons = [BadgeCheck, SlidersHorizontal, Truck, ShieldCheck];
+    const customBadges: Array<{ title: string; description: string }> = [];
+
+    for (let i = 1; i <= 4; i++) {
+      const bKey = `badge${i}`;
+      const badgeVal = content[bKey];
+      if (typeof badgeVal === "string" && badgeVal.trim().length > 0) {
+        customBadges.push({
+          title: badgeVal.trim(),
+          description: i === 1 ? "Traditional stone milling" : i === 2 ? "High-torque copper motor" : i === 3 ? "Pan-India delivery" : "Official warranty",
+        });
+      }
+    }
+
+    if (customBadges.length > 0) {
+      items = customBadges.map((badge, idx) => ({
+        icon: icons[idx % icons.length],
+        title: badge.title,
+        description: badge.description,
+      }));
+    }
+  }
+
   return (
     <section className="trust-strip" aria-label="Store highlights">
-      {highlights.map((item) => {
+      {items.map((item) => {
         const Icon = item.icon;
 
         return (

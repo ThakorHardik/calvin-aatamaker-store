@@ -4,7 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
-import { Menu, Search, ShoppingBag, Wheat, X } from "lucide-react";
+import { Menu, Search, ShoppingBag, User, Wheat, X } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 type StorefrontHeaderProps = {
   cartCount?: number;
@@ -33,6 +34,7 @@ export default function StorefrontHeader({
   const [searchOpen, setSearchOpen] = useState(false);
   const [localSearch, setLocalSearch] = useState("");
   const [storedCartCount, setStoredCartCount] = useState(0);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   const controlledSearch =
     typeof searchValue === "string" && Boolean(onSearchValueChange);
@@ -41,6 +43,84 @@ export default function StorefrontHeader({
 
   const displayedCartCount = cartCount ?? storedCartCount;
   const homePrefix = pathname === "/" ? "" : "/";
+
+  const [announcement, setAnnouncement] = useState({
+    enabled: true,
+    text: "Free Doorstep Delivery Across India · 5-Year Domestic Motor Warranty",
+    link: "/products",
+  });
+  const [isAcceptingOrders, setIsAcceptingOrders] = useState(true);
+  const [maintenanceMessage, setMaintenanceMessage] = useState("");
+  const [customNavLinks, setCustomNavLinks] = useState<Array<{ id: string; label: string; href: string; isExternal?: boolean }> | null>(null);
+
+  useEffect(() => {
+    function loadCMS() {
+      try {
+        const rawSettings = localStorage.getItem("calvin-store-settings");
+        if (rawSettings) {
+          const s = JSON.parse(rawSettings);
+          setAnnouncement({
+            enabled: s.announcementEnabled !== false,
+            text: s.announcementText || "Free Doorstep Delivery Across India · 5-Year Domestic Motor Warranty",
+            link: s.announcementLink || "/products",
+          });
+          setIsAcceptingOrders(s.isAcceptingOrders !== false);
+          setMaintenanceMessage(s.maintenanceMessage || "");
+        }
+
+        const rawNav = localStorage.getItem("calvin-nav-menus");
+        if (rawNav) {
+          const n = JSON.parse(rawNav);
+          if (Array.isArray(n.headerLinks) && n.headerLinks.length > 0) {
+            setCustomNavLinks(n.headerLinks);
+          }
+        }
+      } catch {
+        // Fallback to default
+      }
+    }
+
+    loadCMS();
+    window.addEventListener("storage", loadCMS);
+    window.addEventListener("calvin-settings-updated", loadCMS);
+    window.addEventListener("calvin-nav-updated", loadCMS);
+
+    return () => {
+      window.removeEventListener("storage", loadCMS);
+      window.removeEventListener("calvin-settings-updated", loadCMS);
+      window.removeEventListener("calvin-nav-updated", loadCMS);
+    };
+  }, []);
+
+  // Check customer session state
+  useEffect(() => {
+    let isMounted = true;
+    try {
+      const supabase = createClient();
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (isMounted) {
+          setIsAuthenticated(Boolean(session?.user));
+        }
+      });
+
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (isMounted) {
+          setIsAuthenticated(Boolean(session?.user));
+        }
+      });
+
+      return () => {
+        isMounted = false;
+        subscription.unsubscribe();
+      };
+    } catch {
+      if (isMounted) {
+        setIsAuthenticated(false);
+      }
+    }
+  }, []);
 
   // Read a search query when the visitor opens the catalogue.
   useEffect(() => {
@@ -144,20 +224,27 @@ export default function StorefrontHeader({
 
   return (
     <>
-      <div className="announcement-bar">
-        <span className="announcement-mark">
-          <Wheat size={14} />
-        </span>
+      {announcement.enabled && (
+        <div className="announcement-bar">
+          <span className="announcement-mark">
+            <Wheat size={14} />
+          </span>
 
-        <span>
-          A better way to bring fresh flour into your everyday kitchen
-        </span>
+          <Link href={announcement.link || "/products"} className="hover:underline">
+            {announcement.text}
+          </Link>
 
-        <span className="announcement-right">
-          CALVIN AATAMAKER <span className="announcement-dot">•</span> MADE FOR
-          HOME
-        </span>
-      </div>
+          <span className="announcement-right">
+            CALVIN AATAMAKER <span className="announcement-dot">•</span> MADE FOR HOME
+          </span>
+        </div>
+      )}
+
+      {!isAcceptingOrders && (
+        <div className="bg-amber-500 text-stone-950 font-bold px-4 py-2 text-center text-xs tracking-wide">
+          ⚠️ NOTICE: {maintenanceMessage || "Storefront is temporarily not accepting orders. Please check back shortly."}
+        </div>
+      )}
 
       <header className="site-header">
         <Link
@@ -180,24 +267,58 @@ export default function StorefrontHeader({
           className={`main-nav ${mobileMenuOpen ? "main-nav-open" : ""}`}
           aria-label="Main navigation"
         >
-          <Link href={`${homePrefix}#shop`} onClick={closeMenu}>
-            Shop Aatamakers
-          </Link>
+          {customNavLinks && customNavLinks.length > 0 ? (
+            customNavLinks.map((link) => (
+              <Link
+                key={link.id}
+                href={link.href}
+                target={link.isExternal ? "_blank" : undefined}
+                rel={link.isExternal ? "noopener noreferrer" : undefined}
+                onClick={closeMenu}
+              >
+                {link.label}
+              </Link>
+            ))
+          ) : (
+            <>
+              <Link href={`${homePrefix}#shop`} onClick={closeMenu}>
+                Shop Aatamakers
+              </Link>
 
-          <Link href={`${homePrefix}#why-calvin`} onClick={closeMenu}>
-            Why Calvin
-          </Link>
+              <Link href={`${homePrefix}#why-calvin`} onClick={closeMenu}>
+                Why Calvin
+              </Link>
 
-          <Link href={`${homePrefix}#personalise`} onClick={closeMenu}>
-            Personalise
-          </Link>
+              <Link href={`${homePrefix}#personalise`} onClick={closeMenu}>
+                Personalise
+              </Link>
 
-          <Link href={`${homePrefix}#help`} onClick={closeMenu}>
-            Help &amp; support
+              <Link href="/pages/contact" onClick={closeMenu}>
+                Help &amp; support
+              </Link>
+            </>
+          )}
+
+          <Link
+            href={isAuthenticated ? "/account" : "/login"}
+            onClick={closeMenu}
+          >
+            {isAuthenticated ? "My Account" : "Sign In"}
           </Link>
         </nav>
 
         <div className="header-actions">
+          <Link
+            href={isAuthenticated ? "/account" : "/login"}
+            className="icon-button"
+            aria-label={
+              isAuthenticated ? "Open my account" : "Customer sign in"
+            }
+            title={isAuthenticated ? "My Account" : "Sign In"}
+          >
+            <User size={19} />
+          </Link>
+
           <button
             className="icon-button search-toggle"
             aria-label={searchOpen ? "Close product search" : "Search products"}

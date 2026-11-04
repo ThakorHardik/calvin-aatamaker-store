@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
@@ -15,12 +15,17 @@ import {
   Plus,
   ShieldCheck,
   ShoppingBag,
+  Sparkles,
   Truck,
+  Zap,
 } from "lucide-react";
 
 import StorefrontHeader from "@/components/storefront-header";
 import StorefrontFooter from "@/components/storefront-footer";
 import { supabase } from "@/lib/supabase/client";
+import { generateCartItemId, readSavedCart, saveCart } from "@/lib/cart";
+import type { CartItem } from "@/types/cart";
+import { initialProducts } from "@/lib/mock-data";
 
 type ProductImage = {
   id: string;
@@ -61,21 +66,6 @@ type Product = {
   product_variants: ProductVariant[];
 };
 
-type CartItem = {
-  id: string;
-  productId: string;
-  slug: string;
-  name: string;
-  image: string | null;
-  unitPrice: number;
-  quantity: number;
-  variantId: string | null;
-  variantName: string | null;
-  sku: string | null;
-};
-
-const CART_KEY = "calvin-aatamaker-cart";
-
 function storageImageUrl(path: string) {
   if (/^https?:\/\//i.test(path)) {
     return path;
@@ -104,6 +94,7 @@ function variantDescription(variant: ProductVariant) {
 }
 
 export default function ProductDetailPage() {
+  const router = useRouter();
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
 
@@ -128,7 +119,7 @@ export default function ProductDetailPage() {
     setQuantity(1);
 
     try {
-      const { data, error: queryError } = await supabase
+      let queryRes = await supabase
         .from("products")
         .select(
           `
@@ -170,13 +161,105 @@ export default function ProductDetailPage() {
         .eq("is_active", true)
         .maybeSingle();
 
+      // If requested slug didn't match directly, but slug is the demo alias, check if the real DB product exists with the generated suffix (e.g. compact-domestic-aatamaker-20c2f7)
+      if (!queryRes.data && !queryRes.error && slug === "compact-domestic-aatamaker") {
+        const altRes = await supabase
+          .from("products")
+          .select(
+            `
+            id,
+            category_id,
+            name,
+            slug,
+            sku,
+            short_description,
+            description,
+            price,
+            compare_at_price,
+            stock_quantity,
+            dimensions_cm,
+            weight_kg,
+            is_customisable,
+            is_featured,
+            categories(name),
+            product_images(
+              id,
+              storage_path,
+              alt_text,
+              is_primary,
+              sort_order
+            ),
+            product_variants(
+              id,
+              name,
+              sku,
+              price,
+              stock_quantity,
+              options,
+              is_active,
+              sort_order
+            )
+          `,
+          )
+          .ilike("slug", "compact-domestic-aatamaker%")
+          .eq("is_active", true)
+          .limit(1)
+          .maybeSingle();
+        if (altRes.data) {
+          queryRes = altRes;
+        }
+      }
+
+      const { data, error: queryError } = queryRes;
+
+      const isLocalDev =
+        typeof window !== "undefined" &&
+        (window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1" ||
+          process.env.NODE_ENV === "development");
+      const isDemoSlug =
+        slug === "compact-domestic-aatamaker" || slug === "calvin-compact-01";
+
       if (queryError) {
-        console.error("Product details query failed:", queryError.message);
-        setError("We couldn't load this product. Please try again.");
-        return;
+        if (isLocalDev && isDemoSlug) {
+          console.warn("Local dev fallback for demonstration slug due to DB error:", slug, queryError.message);
+        } else {
+          setError(`Unable to load product: ${queryError.message}`);
+          return;
+        }
       }
 
       if (!data) {
+        if (isLocalDev && isDemoSlug) {
+          console.warn("Product details query skipped, loading fallback catalog demo product:", slug);
+          const fallback = initialProducts.find((p) => p.slug === slug) || initialProducts[0];
+          if (fallback) {
+            const item: Product = {
+              id: fallback.id,
+              category_id: null,
+              name: fallback.name,
+              slug: fallback.slug,
+              sku: "CALVIN-COMPACT-01",
+              short_description: fallback.description,
+              description: fallback.description,
+              price: fallback.price,
+              compare_at_price: null,
+              stock_quantity: fallback.stock,
+              dimensions_cm: { height: "88", width: "48", depth: "34" },
+              weight_kg: 45,
+              is_customisable: true,
+              is_featured: true,
+              categories: { name: fallback.category },
+              product_images: [{ id: "img-1", storage_path: fallback.image, alt_text: fallback.name, is_primary: true, sort_order: 1 }],
+              product_variants: [
+                { id: "var-1", name: "Standard Domestic 1 HP", sku: "CALVIN-COMPACT-1HP", price: fallback.price, stock_quantity: 12, options: {}, is_active: true, sort_order: 1 },
+                { id: "var-2", name: "Heavy Duty 1.25 HP", sku: "CALVIN-COMPACT-125HP", price: fallback.price + 2500, stock_quantity: 8, options: {}, is_active: true, sort_order: 2 },
+              ],
+            };
+            setProduct(item);
+            return;
+          }
+        }
         setError("This product is unavailable or could not be found.");
         return;
       }
@@ -197,8 +280,45 @@ export default function ProductDetailPage() {
 
       setProduct(item);
     } catch (err) {
-      console.error("Unable to load product:", err);
-      setError("Something went wrong while loading this product.");
+      const isLocalDev =
+        typeof window !== "undefined" &&
+        (window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1" ||
+          process.env.NODE_ENV === "development");
+      const isDemoSlug =
+        slug === "compact-domestic-aatamaker" || slug === "calvin-compact-01";
+
+      if (isLocalDev && isDemoSlug) {
+        console.warn("Unable to load product from Supabase, loading fallback catalog demo product:", err);
+        const fallback = initialProducts.find((p) => p.slug === slug) || initialProducts[0];
+        if (fallback) {
+          const item: Product = {
+            id: fallback.id,
+            category_id: null,
+            name: fallback.name,
+            slug: fallback.slug,
+            sku: "CALVIN-COMPACT-01",
+            short_description: fallback.description,
+            description: fallback.description,
+            price: fallback.price,
+            compare_at_price: null,
+            stock_quantity: fallback.stock,
+            dimensions_cm: { height: "88", width: "48", depth: "34" },
+            weight_kg: 45,
+            is_customisable: true,
+            is_featured: true,
+            categories: { name: fallback.category },
+            product_images: [{ id: "img-1", storage_path: fallback.image, alt_text: fallback.name, is_primary: true, sort_order: 1 }],
+            product_variants: [
+              { id: "var-1", name: "Standard Domestic 1 HP", sku: "CALVIN-COMPACT-1HP", price: fallback.price, stock_quantity: 12, options: {}, is_active: true, sort_order: 1 },
+              { id: "var-2", name: "Heavy Duty 1.25 HP", sku: "CALVIN-COMPACT-125HP", price: fallback.price + 2500, stock_quantity: 8, options: {}, is_active: true, sort_order: 2 },
+            ],
+          };
+          setProduct(item);
+          return;
+        }
+      }
+      setError("Something went wrong while loading this product. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -239,15 +359,8 @@ export default function ProductDetailPage() {
     setCartMessage("");
 
     try {
-      const raw = localStorage.getItem(CART_KEY);
-      const parsed: unknown = raw ? JSON.parse(raw) : [];
-
-      if (!Array.isArray(parsed)) {
-        throw new Error("The saved cart is invalid.");
-      }
-
-      const cart = parsed as CartItem[];
-      const itemId = `${product.id}:${selectedVariant?.id ?? "default"}`;
+      const cart = readSavedCart();
+      const itemId = generateCartItemId(product.id, selectedVariant?.id ?? null, null);
 
       const existingIndex = cart.findIndex((item) => item.id === itemId);
 
@@ -268,25 +381,23 @@ export default function ProductDetailPage() {
         name: product.name,
         image: visibleImage?.url ?? null,
         unitPrice: Number(currentPrice),
-        quantity,
+        quantity: currentQuantity + quantity,
         variantId: selectedVariant?.id ?? null,
         variantName: selectedVariant?.name ?? null,
         sku: selectedVariant?.sku ?? product.sku,
+        customisationDetails: null,
       };
 
       if (existingIndex >= 0) {
-        cart[existingIndex] = {
-          ...cart[existingIndex],
-          ...cartItem,
-          quantity: currentQuantity + quantity,
-        };
+        cart[existingIndex] = cartItem;
       } else {
-        cart.push(cartItem);
+        cart.push({
+          ...cartItem,
+          quantity,
+        });
       }
 
-      localStorage.setItem(CART_KEY, JSON.stringify(cart));
-      window.dispatchEvent(new Event("calvin-cart-updated"));
-
+      saveCart(cart);
       setCartMessage(`${product.name} added to your cart.`);
     } catch (err) {
       console.error("Unable to update cart:", err);
@@ -294,6 +405,12 @@ export default function ProductDetailPage() {
     } finally {
       setAdding(false);
     }
+  }
+
+  function buyNow() {
+    if (!product || !isAvailable || adding) return;
+    addToCart();
+    router.push("/checkout");
   }
 
   if (loading) {
@@ -402,7 +519,7 @@ export default function ProductDetailPage() {
                   alt={visibleImage.alt}
                   width={900}
                   height={900}
-                  unoptimized
+
                   priority
                   className="h-full w-full object-contain"
                 />
@@ -440,7 +557,7 @@ export default function ProductDetailPage() {
                       alt={image.alt}
                       width={160}
                       height={160}
-                      unoptimized
+    
                       className="h-full w-full object-contain"
                     />
                   </button>
@@ -539,6 +656,32 @@ export default function ProductDetailPage() {
               </p>
             )}
 
+            {product.is_customisable && (
+              <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50/90 p-4 text-xs text-amber-950 shadow-xs">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <Sparkles size={16} className="shrink-0 text-amber-700 mt-0.5" />
+                    <div>
+                      <strong className="block font-bold text-amber-900">
+                        Bespoke Personalisation Available
+                      </strong>
+                      <p className="mt-0.5 text-amber-800">
+                        Customize timber veneer, architectural finishes, specialized sieves, and bespoke laser name engraving.
+                      </p>
+                    </div>
+                  </div>
+
+                  <Link
+                    href={`/products/${product.slug}/customize`}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-amber-900 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-amber-800 transition"
+                  >
+                    <span>Open Studio</span>
+                    <ArrowRight size={13} />
+                  </Link>
+                </div>
+              </div>
+            )}
+
             {product.product_variants.length > 0 && (
               <div className="mt-7">
                 <label
@@ -619,48 +762,74 @@ export default function ProductDetailPage() {
               </p>
             )}
 
-            <div className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto]">
-              <button
-                type="button"
-                onClick={addToCart}
-                disabled={
-                  !isAvailable ||
-                  adding ||
-                  (product.product_variants.length > 0 && !selectedVariant)
-                }
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-700 px-5 py-4 text-sm font-bold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-stone-300"
-              >
-                {adding ? (
-                  <LoaderCircle size={18} className="animate-spin" />
-                ) : (
-                  <ShoppingBag size={18} />
-                )}
+            {/* Purchase & Personalization Actions */}
+            <div className="mt-6 space-y-3">
+              {product.is_customisable && (
+                <Link
+                  href={`/products/${product.slug}/customize?variant=${selectedVariant?.id ?? ""}&quantity=${quantity}`}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-600 px-5 py-4 text-sm font-bold text-white transition hover:bg-amber-700 shadow-sm"
+                >
+                  <Sparkles size={18} />
+                  <span>Customize Your Aatamaker</span>
+                </Link>
+              )}
 
-                {adding
-                  ? "Adding to cart…"
-                  : isAvailable
-                    ? "Add to cart"
-                    : "Out of stock"}
-              </button>
+              <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+                <button
+                  type="button"
+                  onClick={addToCart}
+                  disabled={
+                    !isAvailable ||
+                    adding ||
+                    (product.product_variants.length > 0 && !selectedVariant)
+                  }
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-700 px-4 py-3.5 text-sm font-bold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-stone-300"
+                >
+                  {adding ? (
+                    <LoaderCircle size={18} className="animate-spin" />
+                  ) : (
+                    <ShoppingBag size={18} />
+                  )}
+                  {adding
+                    ? "Adding…"
+                    : isAvailable
+                      ? "Add to Cart"
+                      : "Out of stock"}
+                </button>
 
-              <button
-                type="button"
-                aria-pressed={savedForLater}
-                aria-label={
-                  savedForLater ? "Remove from wishlist" : "Save to wishlist"
-                }
-                onClick={() => setSavedForLater((value) => !value)}
-                className={`flex items-center justify-center rounded-xl border px-4 py-3 transition ${
-                  savedForLater
-                    ? "border-red-200 bg-red-50 text-red-700"
-                    : "border-stone-300 bg-white text-stone-700 hover:bg-stone-50"
-                }`}
-              >
-                <Heart
-                  size={19}
-                  fill={savedForLater ? "currentColor" : "none"}
-                />
-              </button>
+                <button
+                  type="button"
+                  onClick={buyNow}
+                  disabled={
+                    !isAvailable ||
+                    adding ||
+                    (product.product_variants.length > 0 && !selectedVariant)
+                  }
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-stone-800 bg-white px-4 py-3.5 text-sm font-bold text-stone-900 transition hover:bg-stone-900 hover:text-white disabled:cursor-not-allowed disabled:border-stone-200 disabled:text-stone-300"
+                >
+                  <Zap size={18} />
+                  <span>Buy Now</span>
+                </button>
+
+                <button
+                  type="button"
+                  aria-pressed={savedForLater}
+                  aria-label={
+                    savedForLater ? "Remove from wishlist" : "Save to wishlist"
+                  }
+                  onClick={() => setSavedForLater((value) => !value)}
+                  className={`flex items-center justify-center rounded-xl border px-4 py-3 transition ${
+                    savedForLater
+                      ? "border-red-200 bg-red-50 text-red-700"
+                      : "border-stone-300 bg-white text-stone-700 hover:bg-stone-50"
+                  }`}
+                >
+                  <Heart
+                    size={19}
+                    fill={savedForLater ? "currentColor" : "none"}
+                  />
+                </button>
+              </div>
             </div>
 
             {cartMessage && (

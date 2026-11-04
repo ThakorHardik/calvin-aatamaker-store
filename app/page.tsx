@@ -1,325 +1,325 @@
-"use client";
-
-import Image from "next/image";
-import { useMemo, useState } from "react";
-import {
-  ArrowRight,
-  Check,
-  Minus,
-  Plus,
-  ShoppingBag,
-  Wheat,
-  X,
-} from "lucide-react";
+import type { Metadata } from "next";
+import Link from "next/link";
+import { ArrowRight, Layers } from "lucide-react";
+import { createClient } from "@/lib/supabase/server";
 
 import StorefrontHeader from "@/components/storefront-header";
 import HomepageHero from "@/components/homepage-hero";
 import HomepageTrustStrip from "@/components/homepage-trust-strip";
-import HomepageProductCollection from "@/components/homepage-product-collection";
-import HomepageHowItWorks from "@/components/homepage-how-it-works";
-import StorefrontFooter from "@/components/storefront-footer";
+import HomepageProductCollection, {
+  type RealProduct,
+  type RealCategory,
+} from "@/components/homepage-product-collection";
 import HomepageWhyCalvin from "@/components/homepage-why-calvin";
-
-import HomepageContact from "@/components/homepage-contact";
-
+import HomepageHowItWorks from "@/components/homepage-how-it-works";
 import HomepageFaq from "@/components/homepage-faq";
+import HomepageContact from "@/components/homepage-contact";
+import StorefrontFooter from "@/components/storefront-footer";
 
-import { formatINR, initialProducts, type Product } from "@/lib/mock-data";
+export const dynamic = "force-dynamic";
 
-type CartLine = {
-  product: Product;
-  quantity: number;
+export const metadata: Metadata = {
+  title: "Calvin Aatamaker | Fresh flour, made at home",
+  description:
+    "Explore compact, stone-ground domestic aatamakers by Calvin. Thoughtful design, natural nutrition, and personalised flour milling for Indian kitchens.",
+  openGraph: {
+    title: "Calvin Aatamaker | Fresh flour, made at home",
+    description:
+      "Explore compact, stone-ground domestic aatamakers by Calvin. Thoughtful design, natural nutrition, and personalised flour milling for Indian kitchens.",
+    type: "website",
+    locale: "en_IN",
+  },
 };
 
-export default function HomePage() {
-  const [cart, setCart] = useState<CartLine[]>([]);
-  const [cartOpen, setCartOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [activeFilter, setActiveFilter] = useState("All products");
-  const [toast, setToast] = useState("");
+type SupabaseProductRow = {
+  id: string;
+  category_id: string | null;
+  name: string;
+  slug: string;
+  sku: string | null;
+  short_description: string | null;
+  description: string | null;
+  price: number | string;
+  compare_at_price: number | string | null;
+  stock_quantity: number | string;
+  dimensions_cm: Record<string, string | number | null> | null;
+  weight_kg: number | string | null;
+  is_customisable: boolean;
+  is_featured: boolean;
+  sort_order: number;
+  categories: { id?: string; name?: string; slug?: string } | null;
+  product_images: Array<{
+    id: string;
+    storage_path: string;
+    alt_text: string | null;
+    is_primary: boolean;
+    sort_order: number;
+  }> | null;
+};
 
-  const products = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+type SectionConfigItem = {
+  key: string;
+  isEnabled: boolean;
+  sortOrder: number;
+  content?: Record<string, unknown>;
+};
 
-    return initialProducts.filter((product) => {
-      const searchableText =
-        `${product.name} ${product.category}`.toLowerCase();
+const DEFAULT_SECTION_ORDER: SectionConfigItem[] = [
+  { key: "hero_carousel", isEnabled: true, sortOrder: 1 },
+  { key: "trust_strip", isEnabled: true, sortOrder: 2 },
+  { key: "category_showcase", isEnabled: true, sortOrder: 3 },
+  { key: "featured_products", isEnabled: true, sortOrder: 4 },
+  { key: "why_calvin", isEnabled: true, sortOrder: 5 },
+  { key: "how_it_works", isEnabled: true, sortOrder: 6 },
+  { key: "faq", isEnabled: true, sortOrder: 7 },
+  { key: "newsletter", isEnabled: true, sortOrder: 8 },
+];
 
-      const matchesQuery = searchableText.includes(normalizedQuery);
+function getProductImageUrl(
+  storagePath: string | null | undefined,
+  supabaseUrl: string
+): string {
+  if (!storagePath) return "/images/calvin-aatamaker-logo.png";
+  if (/^https?:\/\//i.test(storagePath)) return storagePath;
 
-      const matchesFilter =
-        activeFilter === "All products" ||
-        (activeFilter === "Customisable" && product.customisable);
+  const clean = storagePath
+    .replace(/^\/+/, "")
+    .replace(/^storage\/v1\/object\/public\/product-media\//, "")
+    .replace(/^product-media\//, "");
 
-      return product.active && matchesQuery && matchesFilter;
+  return `${supabaseUrl}/storage/v1/object/public/product-media/${clean}`;
+}
+
+export default async function HomePage() {
+  const supabase = await createClient();
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    "https://jxveftfkpmzevjimxzce.supabase.co";
+
+  // 1. Fetch active categories
+  const { data: rawCategories } = await supabase
+    .from("categories")
+    .select("id, name, slug, image_path, sort_order")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true });
+
+  const categories: RealCategory[] = (rawCategories ?? []).map((cat) => ({
+    id: cat.id,
+    name: cat.name,
+    slug: cat.slug,
+    image_path: cat.image_path,
+  }));
+
+  // 2. Fetch active products with categories and images
+  const { data: rawProducts } = await supabase
+    .from("products")
+    .select(
+      `
+      id,
+      category_id,
+      name,
+      slug,
+      sku,
+      short_description,
+      description,
+      price,
+      compare_at_price,
+      stock_quantity,
+      dimensions_cm,
+      weight_kg,
+      is_customisable,
+      is_featured,
+      sort_order,
+      categories (id, name, slug),
+      product_images (id, storage_path, alt_text, is_primary, sort_order)
+    `
+    )
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true });
+
+  const products: RealProduct[] = (
+    (rawProducts ?? []) as unknown as SupabaseProductRow[]
+  ).map((p) => {
+    // Sort images: primary first, then by sort_order
+    const sortedImages = [...(p.product_images ?? [])].sort((a, b) => {
+      if (a.is_primary !== b.is_primary) return a.is_primary ? -1 : 1;
+      return (a.sort_order ?? 0) - (b.sort_order ?? 0);
     });
-  }, [query, activeFilter]);
 
-  const cartCount = cart.reduce((total, line) => total + line.quantity, 0);
+    const primaryStoragePath = sortedImages[0]?.storage_path;
+    const imageUrl = getProductImageUrl(primaryStoragePath, supabaseUrl);
 
-  const cartSubtotal = cart.reduce(
-    (total, line) => total + line.product.price * line.quantity,
-    0,
-  );
+    return {
+      id: p.id,
+      name: p.name,
+      slug: p.slug,
+      sku: p.sku,
+      short_description: p.short_description,
+      description: p.description || "",
+      price: Number(p.price) || 0,
+      compare_at_price: p.compare_at_price ? Number(p.compare_at_price) : null,
+      stock_quantity: Number(p.stock_quantity) || 0,
+      dimensions_cm: p.dimensions_cm || null,
+      weight_kg: p.weight_kg ? Number(p.weight_kg) : null,
+      is_customisable: Boolean(p.is_customisable),
+      is_featured: Boolean(p.is_featured),
+      category_name: p.categories?.name,
+      category_slug: p.categories?.slug,
+      category_id: p.category_id,
+      image: imageUrl,
+    };
+  });
 
-  function showToast(message: string) {
-    setToast(message);
-    window.setTimeout(() => setToast(""), 2600);
-  }
+  // 3. Fetch CMS Section Configuration
+  let dynamicSections: SectionConfigItem[] = DEFAULT_SECTION_ORDER;
+  try {
+    const { data: cmsSetting } = await supabase
+      .from("store_settings")
+      .select("value, setting_value")
+      .eq("setting_key", "homepage_sections_config")
+      .maybeSingle();
 
-  function addToCart(product: Product) {
-    setCart((current) => {
-      const existing = current.find((line) => line.product.id === product.id);
-
-      if (existing) {
-        return current.map((line) =>
-          line.product.id === product.id
-            ? {
-                ...line,
-                quantity: line.quantity + 1,
-              }
-            : line,
-        );
+    if (cmsSetting) {
+      const val = cmsSetting.value || cmsSetting.setting_value;
+      if (Array.isArray(val) && val.length > 0) {
+        dynamicSections = (val as Array<Record<string, unknown>>).map((s, idx) => ({
+          key: String(s.key || s.section_key || ""),
+          isEnabled: s.isEnabled !== false && s.is_enabled !== false,
+          sortOrder: typeof s.sortOrder === "number" ? s.sortOrder : typeof s.sort_order === "number" ? s.sort_order : idx + 1,
+          content: typeof s.content === "object" && s.content !== null ? (s.content as Record<string, unknown>) : undefined,
+        }));
       }
+    } else {
+      // Fallback check to homepage_sections table
+      const { data: tableSections } = await supabase
+        .from("homepage_sections")
+        .select("section_key, is_enabled, sort_order, content")
+        .order("sort_order", { ascending: true });
 
-      return [
-        ...current,
-        {
-          product,
-          quantity: 1,
-        },
-      ];
-    });
-
-    setCartOpen(true);
+      if (tableSections && tableSections.length > 0) {
+        dynamicSections = tableSections.map((s, idx) => ({
+          key: s.section_key,
+          isEnabled: Boolean(s.is_enabled),
+          sortOrder: s.sort_order ?? idx + 1,
+          content: typeof s.content === "object" && s.content !== null ? (s.content as Record<string, unknown>) : undefined,
+        }));
+      }
+    }
+  } catch {
+    // Retain default section order on network or table absence
   }
 
-  function updateQuantity(productId: string, amount: number) {
-    setCart((current) =>
-      current
-        .map((line) =>
-          line.product.id === productId
-            ? {
-                ...line,
-                quantity: line.quantity + amount,
-              }
-            : line,
-        )
-        .filter((line) => line.quantity > 0),
-    );
-  }
+  // Sort sections and filter out disabled ones
+  const activeSections = dynamicSections
+    .filter((sec) => sec.isEnabled)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
 
   return (
-    <main id="top">
-      {/* 1. Shared navigation */}
-      <StorefrontHeader
-        cartCount={cartCount}
-        onOpenCart={() => setCartOpen(true)}
-        searchValue={query}
-        onSearchValueChange={setQuery}
-        onSearchSubmit={() => {
-          document.querySelector("#shop")?.scrollIntoView({
-            behavior: "smooth",
-          });
-        }}
-      />
+    <main id="top" className="min-h-screen bg-[var(--paper)] text-stone-900">
+      {/* 1. Shared Header */}
+      <StorefrontHeader />
 
-      {/* 2. Dynamic homepage hero */}
-      <HomepageHero />
+      {/* 2. Dynamically Rendered Homepage CMS Sections */}
+      {activeSections.map((section) => {
+        switch (section.key) {
+          case "hero_carousel":
+            return <HomepageHero key="hero_carousel" />;
 
-      {/* 3. Trust highlights */}
-      <HomepageTrustStrip />
+          case "trust_strip":
+            return (
+              <HomepageTrustStrip
+                key="trust_strip"
+                content={section.content}
+              />
+            );
 
-      {/* 4. Product collection - separate component */}
-      <HomepageProductCollection
-        products={products}
-        query={query}
-        setQuery={setQuery}
-        activeFilter={activeFilter}
-        setActiveFilter={setActiveFilter}
-        addToCart={addToCart}
-        showToast={showToast}
-      />
-
-      <HomepageWhyCalvin />
-
-      {/* 5. How it works */}
-      <HomepageHowItWorks />
-
-      <HomepageFaq />
-
-      {/* Contact and support */}
-      <HomepageContact />
-
-      {/* 6. Contact section */}
-
-      {/* 7. Shared footer */}
-      <StorefrontFooter />
-
-      {/* Homepage demonstration cart */}
-      {cartOpen && (
-        <div
-          className="drawer-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              setCartOpen(false);
-            }
-          }}
-        >
-          <aside className="cart-drawer" aria-label="Shopping cart">
-            <div className="drawer-heading">
-              <div>
-                <span className="drawer-eyebrow">YOUR SELECTION</span>
-
-                <h2>
-                  Your cart <span>({cartCount})</span>
-                </h2>
-              </div>
-
-              <button
-                type="button"
-                className="icon-button"
-                aria-label="Close cart"
-                onClick={() => setCartOpen(false)}
+          case "category_showcase":
+            return categories.length > 0 ? (
+              <section
+                key="category_showcase"
+                className="border-b border-stone-200 bg-[#faf6f0] py-8 sm:py-10"
               >
-                <X size={21} />
-              </button>
-            </div>
-
-            {cart.length > 0 ? (
-              <>
-                <div className="cart-lines">
-                  {cart.map((line) => (
-                    <div className="cart-line" key={line.product.id}>
-                      <Image
-                        src={line.product.image}
-                        alt={line.product.name}
-                        width={82}
-                        height={102}
-                      />
-
-                      <div className="cart-line-info">
-                        <strong>{line.product.name}</strong>
-
-                        <span>{formatINR(line.product.price)}</span>
-
-                        <div className="quantity-stepper">
-                          <button
-                            type="button"
-                            aria-label="Reduce quantity"
-                            onClick={() => updateQuantity(line.product.id, -1)}
-                          >
-                            <Minus size={13} />
-                          </button>
-
-                          <span>{line.quantity}</span>
-
-                          <button
-                            type="button"
-                            aria-label="Increase quantity"
-                            onClick={() => updateQuantity(line.product.id, 1)}
-                          >
-                            <Plus size={13} />
-                          </button>
-                        </div>
-                      </div>
-
-                      <strong className="cart-line-total">
-                        {formatINR(line.product.price * line.quantity)}
-                      </strong>
+                <div className="mx-auto max-w-7xl px-5 sm:px-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#b91f32]">
+                        Explore by Category
+                      </span>
+                      <h3 className="mt-1 font-display text-xl font-bold tracking-tight text-stone-900">
+                        Flour Mill Collections
+                      </h3>
                     </div>
-                  ))}
-                </div>
 
-                <div className="cart-footer">
-                  <div className="cart-subtotal">
-                    <span>Subtotal</span>
-                    <strong>{formatINR(cartSubtotal)}</strong>
-                  </div>
+                    <div className="flex flex-wrap gap-2.5">
+                      <Link
+                        href="/products"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold text-stone-700 shadow-sm transition hover:border-[#b91f32] hover:text-[#b91f32]"
+                      >
+                        <Layers size={13} />
+                        <span>All Categories</span>
+                      </Link>
 
-                  <p>Shipping and taxes are calculated at checkout.</p>
-
-                  <button
-                    type="button"
-                    className="button button-primary checkout-button"
-                    onClick={() =>
-                      showToast(
-                        "This is a homepage demo cart. Use the product page and Cart page for the current checkout flow.",
-                      )
-                    }
-                  >
-                    Continue to checkout
-                    <ArrowRight size={17} />
-                  </button>
-
-                  <button
-                    type="button"
-                    className="continue-shopping"
-                    onClick={() => setCartOpen(false)}
-                  >
-                    Continue shopping
-                  </button>
-
-                  <div className="cart-demo-warning">
-                    Demo cart — items are separate from the Supabase-backed
-                    cart.
+                      {categories.map((cat) => (
+                        <Link
+                          key={cat.id}
+                          href={`/products?category=${encodeURIComponent(
+                            cat.slug || cat.id
+                          )}`}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold text-stone-700 shadow-sm transition hover:border-[#b91f32] hover:text-[#b91f32]"
+                        >
+                          <span>{cat.name}</span>
+                          <ArrowRight size={12} className="text-stone-400" />
+                        </Link>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </>
-            ) : (
-              <div className="empty-cart">
-                <span className="empty-cart-icon">
-                  <ShoppingBag size={26} />
-                </span>
+              </section>
+            ) : null;
 
-                <h3>Your cart is taking a break.</h3>
+          case "featured_products":
+            return (
+              <HomepageProductCollection
+                key="featured_products"
+                products={products}
+                categories={categories}
+              />
+            );
 
-                <p>Add your favourite Aatamaker to get started.</p>
+          case "why_calvin":
+            return (
+              <HomepageWhyCalvin
+                key="why_calvin"
+                content={section.content}
+              />
+            );
 
-                <button
-                  type="button"
-                  className="button button-primary"
-                  onClick={() => {
-                    setCartOpen(false);
+          case "how_it_works":
+            return (
+              <HomepageHowItWorks
+                key="how_it_works"
+                content={section.content}
+              />
+            );
 
-                    document.querySelector("#shop")?.scrollIntoView({
-                      behavior: "smooth",
-                    });
-                  }}
-                >
-                  Explore the collection
-                  <ArrowRight size={16} />
-                </button>
-              </div>
-            )}
-          </aside>
-        </div>
-      )}
+          case "faq":
+            return (
+              <HomepageFaq
+                key="faq"
+                content={section.content}
+              />
+            );
 
-      {/* Temporary user feedback */}
-      {toast && (
-        <div className="toast-message" role="status">
-          <Check size={17} />
-          {toast}
-        </div>
-      )}
+          case "newsletter":
+            return <HomepageContact key="newsletter" />;
 
-      {/* Back-to-top control */}
-      <a
-        className="back-to-top"
-        href="#top"
-        aria-label="Back to top"
-        onClick={(event) => {
-          event.preventDefault();
+          default:
+            return null;
+        }
+      })}
 
-          window.scrollTo({
-            top: 0,
-            behavior: "smooth",
-          });
-        }}
-      >
-        <ArrowRight size={17} />
-      </a>
+      {/* 3. Shared Footer */}
+      <StorefrontFooter />
     </main>
   );
 }

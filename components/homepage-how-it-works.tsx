@@ -4,9 +4,14 @@ import {
   CheckCircle2,
   ClipboardList,
   PackageCheck,
+  Wheat,
 } from "lucide-react";
 
-const steps = [
+interface HomepageHowItWorksProps {
+  content?: Record<string, unknown>;
+}
+
+const defaultSteps = [
   {
     number: "01",
     icon: ClipboardList,
@@ -30,7 +35,27 @@ const steps = [
   },
 ];
 
-export default function HomepageHowItWorks() {
+export default function HomepageHowItWorks({ content }: HomepageHowItWorksProps = {}) {
+  const icons = [Wheat, ClipboardList, CheckCircle2, PackageCheck];
+  const customSteps: Array<{ number: string; icon: typeof ClipboardList; title: string; description: string }> = [];
+
+  if (content) {
+    for (let i = 1; i <= 4; i++) {
+      const t = content[`step${i}_title`];
+      const d = content[`step${i}_desc`];
+      if (typeof t === "string" && t.trim().length > 0) {
+        customSteps.push({
+          number: `0${i}`,
+          icon: icons[(i - 1) % icons.length],
+          title: t.trim(),
+          description: typeof d === "string" ? d.trim() : "",
+        });
+      }
+    }
+  }
+
+  const steps = customSteps.length > 0 ? customSteps : defaultSteps;
+
   return (
     <section
       id="how-it-works"

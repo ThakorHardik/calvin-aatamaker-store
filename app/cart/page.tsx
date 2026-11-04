@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -9,10 +9,11 @@ import {
   ArrowRight,
   LoaderCircle,
   Minus,
-  Package,
   Plus,
+  Rotate3d,
   ShieldCheck,
   ShoppingBag,
+  Sparkles,
   Trash2,
   Truck,
 } from "lucide-react";
@@ -20,24 +21,14 @@ import {
 import StorefrontHeader from "@/components/storefront-header";
 import StorefrontFooter from "@/components/storefront-footer";
 import { supabase } from "@/lib/supabase/client";
-
-const CART_KEY = "calvin-aatamaker-cart";
-
-type CartItem = {
-  id: string;
-  productId: string;
-  slug: string;
-  name: string;
-  image: string | null;
-  unitPrice: number;
-  quantity: number;
-  variantId: string | null;
-  variantName: string | null;
-  sku: string | null;
-  availableStock?: number;
-  unavailable?: boolean;
-  unavailableReason?: string;
-};
+import {
+  CART_UPDATED_EVENT,
+  readSavedCart,
+  saveCart,
+} from "@/lib/cart";
+import type { CartItem } from "@/types/cart";
+import { computeCustomizationPriceDelta, type ProductCustomizationConfig } from "@/types/customization";
+import { resolveCustomizationAssetUrl } from "@/lib/3d/storage-assets";
 
 type DbProduct = {
   id: string;
@@ -47,6 +38,7 @@ type DbProduct = {
   price: number;
   stock_quantity: number;
   is_active: boolean;
+  customization_config?: ProductCustomizationConfig | null;
   product_images: {
     id: string;
     storage_path: string;
@@ -83,63 +75,17 @@ function productImageUrl(path: string) {
     .publicUrl;
 }
 
-function isCartItem(value: unknown): value is CartItem {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const item = value as Partial<CartItem>;
-
-  return (
-    typeof item.id === "string" &&
-    typeof item.productId === "string" &&
-    typeof item.slug === "string" &&
-    typeof item.name === "string" &&
-    (typeof item.image === "string" || item.image === null) &&
-    typeof item.unitPrice === "number" &&
-    Number.isFinite(item.unitPrice) &&
-    typeof item.quantity === "number" &&
-    Number.isInteger(item.quantity) &&
-    item.quantity > 0 &&
-    (typeof item.variantId === "string" || item.variantId === null) &&
-    (typeof item.variantName === "string" || item.variantName === null) &&
-    (typeof item.sku === "string" || item.sku === null)
-  );
-}
-
-function readSavedCart(): CartItem[] {
-  try {
-    const saved = localStorage.getItem(CART_KEY);
-
-    if (!saved) {
-      return [];
-    }
-
-    const parsed: unknown = JSON.parse(saved);
-
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.filter(isCartItem);
-  } catch {
-    return [];
-  }
-}
-
-function saveCart(items: CartItem[]) {
-  localStorage.setItem(CART_KEY, JSON.stringify(items));
-  window.dispatchEvent(new Event("calvin-cart-updated"));
-}
-
 export default function CartPage() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncError, setSyncError] = useState("");
   const [notice, setNotice] = useState("");
+  const isInternalUpdateRef = useRef(false);
 
-  const loadCart = useCallback(async () => {
-    setLoading(true);
+  const loadCart = useCallback(async (isInitial = false) => {
+    if (isInitial) {
+      setLoading(true);
+    }
     setSyncError("");
 
     const savedItems = readSavedCart();
@@ -153,7 +99,10 @@ export default function CartPage() {
     try {
       const productIds = [...new Set(savedItems.map((item) => item.productId))];
 
-      const { data: productData, error: productError } = await supabase
+      let productData: DbProduct[] | null = null;
+      let productError: { message: string } | null = null;
+
+      const initialCartRes = await supabase
         .from("products")
         .select(
           `
@@ -164,6 +113,7 @@ export default function CartPage() {
             price,
             stock_quantity,
             is_active,
+            customization_config,
             product_images(
               id,
               storage_path,
@@ -176,6 +126,37 @@ export default function CartPage() {
         .in("id", productIds)
         .eq("is_active", true);
 
+      if (initialCartRes.error && initialCartRes.error.message.includes("customization_config")) {
+        console.warn("customization_config column pending migration, querying base product columns for cart:", initialCartRes.error.message);
+        const retryCartRes = await supabase
+          .from("products")
+          .select(
+            `
+              id,
+              name,
+              slug,
+              sku,
+              price,
+              stock_quantity,
+              is_active,
+              product_images(
+                id,
+                storage_path,
+                alt_text,
+                is_primary,
+                sort_order
+              )
+            `,
+          )
+          .in("id", productIds)
+          .eq("is_active", true);
+        productData = (retryCartRes.data ?? []) as unknown as DbProduct[];
+        productError = retryCartRes.error;
+      } else {
+        productData = (initialCartRes.data ?? []) as unknown as DbProduct[];
+        productError = initialCartRes.error;
+      }
+
       if (productError) {
         setItems(savedItems);
         setSyncError(
@@ -185,7 +166,6 @@ export default function CartPage() {
       }
 
       const products = (productData ?? []) as unknown as DbProduct[];
-
       const productMap = new Map(
         products.map((product) => [product.id, product]),
       );
@@ -219,13 +199,12 @@ export default function CartPage() {
         if (variantError) {
           setItems(savedItems);
           setSyncError(
-            "We couldn't verify your product options. Please retry before checkout.",
+            "We couldn't verify your machine options. Please retry before checkout.",
           );
           return;
         }
 
         const variants = (variantData ?? []) as DbVariant[];
-
         variantMap = new Map(variants.map((variant) => [variant.id, variant]));
       }
 
@@ -237,7 +216,7 @@ export default function CartPage() {
             ...item,
             unavailable: true,
             availableStock: 0,
-            unavailableReason: "This product is no longer available.",
+            unavailableReason: "This machine is no longer available.",
           };
         }
 
@@ -259,7 +238,7 @@ export default function CartPage() {
               name: product.name,
               unavailable: true,
               availableStock: 0,
-              unavailableReason: "This product option is no longer available.",
+              unavailableReason: "This machine option is no longer available.",
             };
           }
 
@@ -273,46 +252,57 @@ export default function CartPage() {
           if (a.is_primary !== b.is_primary) {
             return a.is_primary ? -1 : 1;
           }
-
           return a.sort_order - b.sort_order;
         });
 
         const primaryImage = images[0];
 
-        // Keep the image selected by the shopper.
-        // Use the primary product image only as a fallback.
+        // Keep the image selected by the shopper or fall back to primary
         const preservedImage =
           item.image ||
           (primaryImage ? productImageUrl(primaryImage.storage_path) : null);
+
+        const baseUnitPrice = price;
+        let customDelta = 0;
+        if (item.customisationDetails && Object.keys(item.customisationDetails).length > 0) {
+          customDelta = computeCustomizationPriceDelta(product.customization_config, item.customisationDetails);
+          price = baseUnitPrice + customDelta;
+        }
 
         return {
           ...item,
           name: product.name,
           slug: product.slug,
           unitPrice: price,
+          baseUnitPrice,
+          customisationPriceDelta: customDelta,
           sku: currentSku ?? item.sku,
           variantName: currentVariantName ?? item.variantName,
           image: preservedImage,
           availableStock: stock,
           unavailable: stock <= 0,
           unavailableReason: stock <= 0 ? "Currently out of stock." : undefined,
+          // Explicitly preserve 3D personalization attributes
+          isCustomized: item.isCustomized,
+          designId: item.designId,
+          modelCode: item.modelCode,
+          modelVersion: item.modelVersion,
+          surfaceKey: item.surfaceKey,
+          customPreviewUrl: item.customPreviewUrl,
+          designSnapshot: item.designSnapshot,
+          customizationMode: item.customizationMode,
+          customisationDetails: item.customisationDetails ?? null,
         };
       });
 
       setItems(refreshedItems);
-
-      // Update the saved cart without dispatching another
-      // cart event, preventing unnecessary reloads.
-      try {
-        localStorage.setItem(CART_KEY, JSON.stringify(refreshedItems));
-      } catch {
-        setNotice(
-          "Your cart was updated for this visit, but could not be saved in this browser.",
-        );
-      }
+      isInternalUpdateRef.current = true;
+      saveCart(refreshedItems);
+      setTimeout(() => {
+        isInternalUpdateRef.current = false;
+      }, 150);
     } catch (error) {
       console.error("Cart verification failed:", error);
-
       setItems(savedItems);
       setSyncError(
         "We couldn't verify your cart right now. Please retry before proceeding to checkout.",
@@ -323,74 +313,76 @@ export default function CartPage() {
   }, []);
 
   useEffect(() => {
-    void loadCart();
+    void loadCart(true);
 
     const handleCartUpdate = () => {
-      void loadCart();
+      if (isInternalUpdateRef.current) return;
+      void loadCart(false);
     };
 
-    window.addEventListener("calvin-cart-updated", handleCartUpdate);
-
+    window.addEventListener(CART_UPDATED_EVENT, handleCartUpdate);
     window.addEventListener("storage", handleCartUpdate);
 
     return () => {
-      window.removeEventListener("calvin-cart-updated", handleCartUpdate);
-
+      window.removeEventListener(CART_UPDATED_EVENT, handleCartUpdate);
       window.removeEventListener("storage", handleCartUpdate);
     };
   }, [loadCart]);
 
   function changeQuantity(itemId: string, nextQuantity: number) {
     setNotice("");
+    if (nextQuantity < 1) return;
 
-    const updatedItems = items.map((item) => {
-      if (item.id !== itemId) {
-        return item;
-      }
+    setItems((currentItems) => {
+      let stockExceeded = false;
+      const updatedItems = currentItems.map((item) => {
+        if (item.id !== itemId) {
+          return item;
+        }
 
-      if (nextQuantity < 1) {
-        return item;
-      }
+        if (
+          item.availableStock !== undefined &&
+          nextQuantity > item.availableStock
+        ) {
+          stockExceeded = true;
+          return item;
+        }
 
-      if (
-        item.availableStock !== undefined &&
-        nextQuantity > item.availableStock
-      ) {
+        return {
+          ...item,
+          quantity: nextQuantity,
+        };
+      });
+
+      if (stockExceeded) {
+        const target = currentItems.find((it) => it.id === itemId);
         setNotice(
-          `Only ${item.availableStock} unit(s) are currently available.`,
+          `Only ${target?.availableStock ?? 0} unit(s) are currently available.`,
         );
-
-        return item;
+        return currentItems;
       }
 
-      return {
-        ...item,
-        quantity: nextQuantity,
-      };
-    });
-
-    setItems(updatedItems);
-
-    try {
+      isInternalUpdateRef.current = true;
       saveCart(updatedItems);
-    } catch {
-      setNotice("Unable to save your cart change in this browser.");
-    }
+      setTimeout(() => {
+        isInternalUpdateRef.current = false;
+      }, 150);
+      return updatedItems;
+    });
   }
 
   function removeItem(itemId: string) {
-    const updatedItems = items.filter((item) => item.id !== itemId);
-
-    setItems(updatedItems);
-
-    try {
+    setNotice("");
+    setItems((currentItems) => {
+      const updatedItems = currentItems.filter((item) => item.id !== itemId);
+      isInternalUpdateRef.current = true;
       saveCart(updatedItems);
-      setNotice("Item removed from your cart.");
-    } catch {
-      setNotice(
-        "The item was removed from this view but could not be saved in this browser.",
-      );
-    }
+      setTimeout(() => {
+        isInternalUpdateRef.current = false;
+      }, 150);
+      setNotice("Machine removed from your cart.");
+      return updatedItems;
+    });
   }
 
   const subtotal = useMemo(
@@ -404,7 +396,6 @@ export default function CartPage() {
   );
 
   const totalQuantity = items.reduce((total, item) => total + item.quantity, 0);
-
   const hasUnavailableItems = items.some((item) => item.unavailable);
 
   return (
@@ -430,7 +421,7 @@ export default function CartPage() {
           </h1>
 
           <p className="mt-2 text-sm text-stone-500">
-            Review your products and quantities before checkout.
+            Review your machines and options before proceeding to checkout.
           </p>
         </div>
 
@@ -467,7 +458,7 @@ export default function CartPage() {
         {loading ? (
           <div className="flex min-h-72 items-center justify-center gap-3 text-stone-500">
             <LoaderCircle size={22} className="animate-spin" />
-            Verifying products and prices…
+            Verifying machines and live inventory…
           </div>
         ) : items.length === 0 ? (
           <section className="mt-8 rounded-3xl border border-stone-200 bg-white px-6 py-16 text-center">
@@ -478,7 +469,7 @@ export default function CartPage() {
             <h2 className="mt-5 text-2xl font-bold">Your cart is empty</h2>
 
             <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-stone-500">
-              Explore our collection and add an Aatamaker that suits your home.
+              Explore our premium domestic flour mills and add an Aatamaker that suits your home.
             </p>
 
             <Link
@@ -508,15 +499,45 @@ export default function CartPage() {
                   >
                     <Link
                       href={`/products/${item.slug}`}
-                      className="flex h-32 w-full shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#f5f2ed] p-3 sm:h-36 sm:w-36"
+                      className="relative flex h-32 w-full shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#f5f2ed] p-3 sm:h-36 sm:w-36"
                     >
-                      {item.image ? (
+                      {item.customPreviewUrl ? (
+                        <div className="relative h-full w-full flex items-center justify-center">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={resolveCustomizationAssetUrl(item.customPreviewUrl)}
+                            alt={`${item.name} custom 3D machine preview`}
+                            className="h-full w-full object-contain"
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              target.style.display = "none";
+                              const fallback = target.parentElement?.querySelector(".custom-preview-fallback") as HTMLElement | null;
+                              if (fallback) fallback.style.display = "flex";
+                            }}
+                          />
+                          <div className="custom-preview-fallback hidden absolute inset-0 flex-col items-center justify-center p-2 text-center bg-stone-100 text-stone-500 rounded-lg">
+                            <Rotate3d size={20} className="text-stone-400 mb-1" />
+                            <span className="text-[10px] font-medium leading-tight text-stone-600">
+                              Preview unavailable — reopen studio
+                            </span>
+                          </div>
+                          <span className="absolute bottom-1 right-1 rounded-md bg-amber-900/85 px-1.5 py-0.5 text-[9px] font-bold text-white shadow-xs">
+                            Custom 3D
+                          </span>
+                        </div>
+                      ) : item.isCustomized ? (
+                        <div className="flex h-full w-full flex-col items-center justify-center p-2 text-center bg-stone-100 text-stone-500 rounded-lg">
+                          <Rotate3d size={20} className="text-stone-400 mb-1" />
+                          <span className="text-[10px] font-medium leading-tight text-stone-600">
+                            Preview unavailable — reopen studio
+                          </span>
+                        </div>
+                      ) : item.image ? (
                         <Image
                           src={item.image}
                           alt={item.name}
                           width={240}
                           height={240}
-                          unoptimized
                           className="h-full w-full object-contain"
                         />
                       ) : (
@@ -534,7 +555,7 @@ export default function CartPage() {
 
                       {item.variantName && (
                         <p className="mt-1 text-xs text-stone-500">
-                          Option: {item.variantName}
+                          Option: <span className="font-medium text-stone-800">{item.variantName}</span>
                         </p>
                       )}
 
@@ -544,13 +565,76 @@ export default function CartPage() {
                         </p>
                       )}
 
+                      {/* Customization callout with detailed breakdown */}
+                      {item.customisationDetails &&
+                        Object.keys(item.customisationDetails).length > 0 && (
+                          <div className="mt-3 rounded-xl border border-amber-200/90 bg-amber-50/60 p-3 text-xs text-amber-950 space-y-2">
+                            <div className="flex items-center justify-between font-bold text-amber-900 text-[11px] uppercase tracking-wider pb-1.5 border-b border-amber-200/50">
+                              <span className="flex items-center gap-1.5">
+                                <Sparkles size={12} className="text-amber-700" />
+                                Bespoke 3D Personalisation
+                              </span>
+                              {item.customisationPriceDelta && item.customisationPriceDelta > 0 ? (
+                                <span className="font-mono text-amber-800 font-semibold">
+                                  +{formatINR(item.customisationPriceDelta)}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-amber-700 font-medium">Included</span>
+                              )}
+                            </div>
+
+                            {/* Summary description if generated */}
+                            {typeof item.customisationDetails._customization_summary === "string" && (
+                              <p className="text-[11px] text-stone-700 font-medium leading-relaxed italic">
+                                {item.customisationDetails._customization_summary}
+                              </p>
+                            )}
+
+                            {/* Demonstration prototype notice */}
+                            {(item.customizationMode === "demonstration" || item.customisationDetails._mode === "demonstration") && (
+                              <div className="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-100/70 px-2 py-1 text-[10px] text-amber-900 font-medium">
+                                <AlertCircle size={12} className="shrink-0 text-amber-700" />
+                                <span>Visual Demonstration Prototype (Provisional Dimensions: 480 × 340 × 880 mm)</span>
+                              </div>
+                            )}
+
+                            {/* Option fields grid (filtered from system metadata keys starting with _) */}
+                            {Object.entries(item.customisationDetails).filter(([k]) => !k.startsWith("_")).length > 0 && (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-[11px] pt-0.5">
+                                {Object.entries(item.customisationDetails)
+                                  .filter(([k, v]) => !k.startsWith("_") && v !== null && v !== "" && v !== undefined)
+                                  .map(([k, v]) => (
+                                    <div key={k} className="truncate">
+                                      <span className="text-stone-500 capitalize">{k.replace(/_/g, " ")}: </span>
+                                      <span className="font-semibold text-stone-900">{String(v)}</span>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
+
+                            <div className="pt-1 flex items-center justify-between border-t border-amber-200/40">
+                              <Link
+                                href={`/products/${item.slug}/customize?editDesignId=${item.designId || ""}${item.variantId ? `&variant=${item.variantId}` : ""}`}
+                                className="text-[11px] font-semibold text-[#b91f32] hover:underline inline-flex items-center gap-1"
+                              >
+                                Review or edit personalisation in studio →
+                              </Link>
+                              {item.modelCode && (
+                                <span className="text-[10px] text-stone-400 font-mono">
+                                  Model: {item.modelCode}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
                       {item.unavailable ? (
                         <p className="mt-3 text-sm font-semibold text-red-700">
                           {item.unavailableReason}
                         </p>
                       ) : (
                         <p className="mt-3 text-sm font-semibold text-emerald-700">
-                          In stock
+                          In stock ({item.availableStock ?? 0} available)
                         </p>
                       )}
 
@@ -558,6 +642,7 @@ export default function CartPage() {
                         <div className="flex h-10 items-center rounded-xl border border-stone-300">
                           <button
                             type="button"
+                            data-testid={`btn-decrease-qty-${item.id}`}
                             aria-label={`Decrease quantity of ${item.name}`}
                             disabled={item.quantity <= 1}
                             onClick={() =>
@@ -574,6 +659,7 @@ export default function CartPage() {
 
                           <button
                             type="button"
+                            data-testid={`btn-increase-qty-${item.id}`}
                             aria-label={`Increase quantity of ${item.name}`}
                             disabled={
                               item.unavailable ||
@@ -605,6 +691,7 @@ export default function CartPage() {
 
                       <button
                         type="button"
+                        data-testid={`btn-remove-item-${item.id}`}
                         onClick={() => removeItem(item.id)}
                         className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-stone-500 hover:text-red-700"
                       >
@@ -640,27 +727,27 @@ export default function CartPage() {
                   </div>
 
                   <div className="flex justify-between gap-4 text-stone-600">
-                    <span>Shipping</span>
-                    <span>At checkout</span>
+                    <span>Delivery</span>
+                    <span className="font-semibold text-emerald-700">FREE</span>
                   </div>
 
                   <div className="flex justify-between gap-4 text-stone-600">
-                    <span>Tax</span>
-                    <span>At checkout</span>
+                    <span>GST (Included)</span>
+                    <span className="font-semibold text-stone-900">₹0 extra</span>
                   </div>
                 </div>
 
                 <div className="mt-5 flex items-center justify-between border-t border-stone-200 pt-5">
-                  <span className="font-bold">Subtotal</span>
+                  <span className="font-bold">Total Amount</span>
 
-                  <span className="text-xl font-bold">
+                  <span className="text-xl font-bold text-red-700">
                     {formatINR(subtotal)}
                   </span>
                 </div>
 
                 {hasUnavailableItems && (
                   <p className="mt-4 rounded-xl bg-red-50 p-3 text-xs leading-5 text-red-800">
-                    Remove unavailable items before proceeding to checkout.
+                    Please remove out-of-stock items before proceeding to checkout.
                   </p>
                 )}
 
@@ -686,7 +773,7 @@ export default function CartPage() {
                 </button>
 
                 <p className="mt-3 text-center text-xs leading-5 text-stone-500">
-                  Online payment integration will be added separately.
+                  Secure checkout with instant order confirmation.
                 </p>
               </section>
 
@@ -696,12 +783,11 @@ export default function CartPage() {
 
                   <div>
                     <p className="text-sm font-semibold">
-                      Delivery information
+                      Fast pan-India delivery
                     </p>
 
                     <p className="mt-1 text-xs leading-5 text-stone-500">
-                      Delivery charges and estimates will be confirmed during
-                      checkout.
+                      Carefully packaged and insured courier delivery directly to your doorstep.
                     </p>
                   </div>
                 </div>
@@ -713,11 +799,10 @@ export default function CartPage() {
                   />
 
                   <div>
-                    <p className="text-sm font-semibold">Payment information</p>
+                    <p className="text-sm font-semibold">1-Year Brand Warranty</p>
 
                     <p className="mt-1 text-xs leading-5 text-stone-500">
-                      The approved payment gateway will be connected in a later
-                      step.
+                      Authentic CALVIN AATAMAKER warranty and customer support.
                     </p>
                   </div>
                 </div>

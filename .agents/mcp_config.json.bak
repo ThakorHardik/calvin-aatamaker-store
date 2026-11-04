@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "calvin-supabase-readonly": {
+      "serverUrl": "https://mcp.supabase.com/mcp?project_ref=jxveftfkpmzevjimxzce&read_only=true&features=database,docs"
+    }
+  }
+}
+

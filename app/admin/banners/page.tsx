@@ -9,8 +9,8 @@ import {
 } from "react";
 import { supabase } from "@/lib/supabase/client";
 import {
-  AlertCircle,
-  CheckCircle2,
+
+
   ImagePlus,
   LoaderCircle,
   Pencil,
@@ -18,7 +18,7 @@ import {
   RefreshCw,
   Trash2,
   Upload,
-  X,
+
 } from "lucide-react";
 
 type Banner = {
