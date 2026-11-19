@@ -59,59 +59,62 @@ export default function HomepageHowItWorks({ content }: HomepageHowItWorksProps 
   return (
     <section
       id="how-it-works"
-      className="relative overflow-hidden bg-[#f5efe5] px-5 py-16 sm:py-20 lg:py-24"
+      className="relative overflow-hidden border-b border-[#EAE3D8] bg-[#FAF7F2] px-5 py-16 sm:py-20 lg:py-24"
     >
       <div className="mx-auto max-w-7xl">
         <div className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr] lg:items-end">
           <div>
-            <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-[0.2em] text-[#b91f32]">
-              <span className="h-px w-8 bg-[#b91f32]" />
+            <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-[0.2em] text-[#BD2031]">
+              <span className="h-px w-8 bg-[#BD2031]" />
               SIMPLE BY DESIGN
             </div>
 
-            <h2 className="mt-5 max-w-xl text-3xl font-semibold leading-tight tracking-tight text-[#241e1d] sm:text-4xl lg:text-5xl">
+            <h2 className="mt-4 font-display text-3xl font-semibold leading-tight tracking-[-0.03em] text-[#141211] sm:text-4xl lg:text-5xl">
               Your next kitchen essential,
-              <span className="text-[#b91f32]"> made simple.</span>
+              <br />
+              <span className="font-normal italic text-[#BD2031]">made simple.</span>
             </h2>
 
-            <p className="mt-5 max-w-lg text-sm leading-7 text-stone-600 sm:text-base">
+            <p className="mt-4 max-w-lg text-sm leading-relaxed text-[#5E5854] sm:text-base">
               From exploring the collection to reviewing your order, find the
               product information you need at every step.
             </p>
 
             <Link
               href="/products"
-              className="mt-7 inline-flex items-center gap-2 rounded-xl bg-[#b91f32] px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-[#991b2b]"
+              className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#141211] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-[#BD2031]"
             >
-              Explore Aatamakers
+              <span>Explore Aatamakers</span>
               <ArrowRight size={17} />
             </Link>
           </div>
 
-          <div className="border-t border-stone-300">
+          <div className="border-t border-[#EAE3D8]">
             {steps.map((step) => {
               const Icon = step.icon;
 
               return (
                 <article
                   key={step.number}
-                  className="grid grid-cols-[42px_1fr] gap-4 border-b border-stone-300 py-6 sm:grid-cols-[52px_1fr] sm:gap-5 sm:py-7"
+                  className="grid grid-cols-[48px_1fr] gap-4 border-b border-[#EAE3D8] py-6 sm:grid-cols-[56px_1fr] sm:gap-5 sm:py-7"
                 >
-                  <span className="pt-1 text-xs font-bold tracking-widest text-[#b91f32]">
-                    {step.number}
-                  </span>
+                  <div className="pt-1">
+                    <span className="inline-block rounded-md bg-[#141211] px-2 py-0.5 text-[11px] font-bold tracking-wider text-[#D9B88F]">
+                      {step.number}
+                    </span>
+                  </div>
 
                   <div className="flex gap-4 sm:gap-5">
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-stone-300 bg-[#faf8f4] text-[#b91f32] sm:h-12 sm:w-12">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#EAE3D8] bg-white text-[#BD2031] shadow-[0_1px_3px_rgba(20,18,17,0.04)] sm:h-12 sm:w-12">
                       <Icon size={20} strokeWidth={1.7} />
                     </span>
 
                     <div className="flex-1">
-                      <h3 className="text-lg font-semibold tracking-tight text-[#241e1d] sm:text-xl">
+                      <h3 className="font-display text-base font-bold tracking-tight text-[#141211] sm:text-lg">
                         {step.title}
                       </h3>
 
-                      <p className="mt-2 max-w-lg text-sm leading-6 text-stone-600">
+                      <p className="mt-1.5 max-w-lg text-xs leading-relaxed text-[#5E5854] sm:text-sm">
                         {step.description}
                       </p>
                     </div>
@@ -122,11 +125,11 @@ export default function HomepageHowItWorks({ content }: HomepageHowItWorksProps 
           </div>
         </div>
 
-        <div className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-stone-300 pt-5 text-xs text-stone-500">
-          <span>CALVIN AATAMAKER · MADE FOR HOME</span>
+        <div className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-[#EAE3D8] pt-5 text-xs text-[#8A827D]">
+          <span className="font-medium tracking-wide">CALVIN AATAMAKER · DESIGNED FOR EVERYDAY KITCHENS</span>
           <a
             href="#top"
-            className="font-semibold transition hover:text-[#b91f32]"
+            className="font-semibold text-[#141211] transition-colors hover:text-[#BD2031]"
           >
             Back to the top ↑
           </a>

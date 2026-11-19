@@ -1,7 +1,8 @@
 .section {
-  background: #f7f3ec;
-  color: #282220;
-  padding: 88px 24px;
+  background: #f5efe6;
+  color: #141211;
+  padding: clamp(72px, 8vw, 104px) 24px;
+  border-bottom: 1px solid #eae3d8;
 }
 
 .container {
@@ -9,8 +10,8 @@
   max-width: 1280px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-  gap: clamp(48px, 8vw, 120px);
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: clamp(48px, 7vw, 108px);
   align-items: center;
 }
 
@@ -20,67 +21,74 @@
 
 .eyebrow {
   margin: 0;
-  color: #a51e30;
-  font-size: 12px;
+  color: #bd2031;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
 }
 
 .heading {
-  margin: 20px 0 0;
+  margin: 18px 0 0;
   max-width: 540px;
-  font-size: clamp(36px, 4.1vw, 56px);
+  font-family: var(--font-display, "Manrope", sans-serif);
+  font-size: clamp(34px, 4vw, 54px);
   font-weight: 650;
-  letter-spacing: -0.055em;
-  line-height: 1.12;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  color: #141211;
   overflow-wrap: anywhere;
 }
 
 .heading span {
-  color: #b82034;
-  font-weight: 450;
+  color: #bd2031;
+  font-weight: 400;
+  font-style: italic;
 }
 
 .description {
-  max-width: 440px;
-  margin: 22px 0 0;
-  color: #6f655e;
+  max-width: 460px;
+  margin: 20px 0 0;
+  color: #5e5854;
   font-size: 15px;
-  line-height: 1.9;
+  line-height: 1.8;
 }
 
 .cta {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 18px;
-  min-height: 50px;
+  gap: 12px;
+  min-height: 48px;
   margin-top: 28px;
-  padding: 0 21px;
-  border: 1px solid #a91e30;
-  border-radius: 6px;
-  background: #b51f32;
-  color: #fffaf5;
+  padding: 0 24px;
+  border: 1px solid #141211;
+  border-radius: 12px;
+  background: #141211;
+  color: #ffffff;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   text-decoration: none;
+  box-shadow: 0 1px 3px rgba(20, 18, 17, 0.08);
   transition:
-    background 180ms ease,
-    transform 180ms ease;
+    background 200ms ease,
+    border-color 200ms ease,
+    transform 200ms ease;
 }
 
 .cta:hover {
-  background: #94182a;
+  background: #bd2031;
+  border-color: #bd2031;
   transform: translateY(-1px);
 }
 
 .cta:focus-visible {
-  outline: 3px solid #d5a04c;
+  outline: 3px solid #d9b88f;
   outline-offset: 4px;
 }
 
 .benefits {
-  border-top: 1px solid #ded4c8;
+  border-top: 1px solid #eae3d8;
 }
 
 .benefit {
@@ -88,8 +96,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 27px 3px;
-  border-bottom: 1px solid #ded4c8;
+  padding: 26px 4px;
+  border-bottom: 1px solid #eae3d8;
+  transition: background 200ms ease;
 }
 
 .benefitContent {
@@ -98,39 +107,43 @@
 
 .benefitContent h3 {
   margin: 0;
-  color: #282220;
-  font-size: 20px;
+  font-family: var(--font-display, "Manrope", sans-serif);
+  color: #141211;
+  font-size: 19px;
   font-weight: 650;
-  letter-spacing: -0.025em;
-  line-height: 1.4;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
 }
 
 .benefitContent p {
-  max-width: 440px;
-  margin: 9px 0 0;
-  color: #746960;
+  max-width: 460px;
+  margin: 8px 0 0;
+  color: #5e5854;
   font-size: 13px;
-  line-height: 1.85;
+  line-height: 1.75;
 }
 
 .benefitArrow {
   flex: 0 0 auto;
-  color: #b51f32;
-  transition: transform 180ms ease;
+  color: #d9b88f;
+  transition:
+    transform 200ms ease,
+    color 200ms ease;
 }
 
 .benefit:hover .benefitArrow {
-  transform: translateX(4px);
+  color: #bd2031;
+  transform: translateX(5px);
 }
 
 @media (max-width: 850px) {
   .section {
-    padding: 64px 22px;
+    padding: 60px 20px;
   }
 
   .container {
     grid-template-columns: minmax(0, 1fr);
-    gap: 38px;
+    gap: 36px;
   }
 
   .intro {
@@ -138,17 +151,17 @@
   }
 
   .heading {
-    font-size: clamp(36px, 6vw, 50px);
+    font-size: clamp(32px, 6vw, 46px);
   }
 
   .benefit {
-    padding: 23px 2px;
+    padding: 22px 2px;
   }
 }
 
 @media (max-width: 480px) {
   .section {
-    padding: 48px 18px;
+    padding: 48px 16px;
   }
 
   .container {
@@ -156,14 +169,14 @@
   }
 
   .heading {
-    margin-top: 15px;
-    font-size: clamp(34px, 9vw, 42px);
+    margin-top: 14px;
+    font-size: clamp(28px, 8.5vw, 36px);
   }
 
   .description {
-    margin-top: 17px;
+    margin-top: 15px;
     font-size: 14px;
-    line-height: 1.8;
+    line-height: 1.7;
   }
 
   .cta {
@@ -173,16 +186,16 @@
 
   .benefit {
     gap: 14px;
-    padding: 21px 0;
+    padding: 20px 0;
   }
 
   .benefitContent h3 {
-    font-size: 17px;
+    font-size: 16px;
   }
 
   .benefitContent p {
     font-size: 12px;
-    line-height: 1.8;
+    line-height: 1.7;
   }
 }
 

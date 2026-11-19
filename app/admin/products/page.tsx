@@ -1210,16 +1210,40 @@ export default function ProductsAdminPage() {
                       placeholder="Compact Domestic Aatamaker"
                     />
                   </label>
-                  <label className="block text-sm font-medium">
-                    Category
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label htmlFor="product-category-select" className="text-sm font-medium">
+                        Category
+                      </label>
+                      <div className="flex items-center gap-2 text-xs">
+                        {form.category_id && (
+                          <button
+                            type="button"
+                            onClick={() => setForm({ ...form, category_id: "" })}
+                            className="text-stone-500 hover:text-red-600 transition-colors underline"
+                          >
+                            Unassign
+                          </button>
+                        )}
+                        <a
+                          href="/admin/categories"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[#D9B88F] hover:underline"
+                        >
+                          Manage Categories →
+                        </a>
+                      </div>
+                    </div>
                     <select
+                      id="product-category-select"
                       className={fieldClass}
                       value={form.category_id}
                       onChange={(e) =>
                         setForm({ ...form, category_id: e.target.value })
                       }
                     >
-                      <option value="">Uncategorised</option>
+                      <option value="">Uncategorised (No Category)</option>
                       {categories
                         .filter((category) => category.is_active)
                         .map((category) => (
@@ -1228,7 +1252,10 @@ export default function ProductsAdminPage() {
                           </option>
                         ))}
                     </select>
-                  </label>
+                    <p className="mt-1 text-xs text-stone-500">
+                      Assigning or unassigning a category organizes the product catalog without affecting pricing, stock, or media.
+                    </p>
+                  </div>
                   <label className="block text-sm font-medium">
                     Selling price (₹) *
                     <input

@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowRight, Layers } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 
 import StorefrontHeader from "@/components/storefront-header";
 import HomepageHero from "@/components/homepage-hero";
+import HomepageCategoryShowcase, {
+  type CategoryWithCount,
+} from "@/components/homepage-category-showcase";
+import HomepageEmiShowcase from "@/components/homepage-emi-showcase";
 import HomepageTrustStrip from "@/components/homepage-trust-strip";
 import HomepageProductCollection, {
   type RealProduct,
@@ -66,20 +68,21 @@ type SectionConfigItem = {
 
 const DEFAULT_SECTION_ORDER: SectionConfigItem[] = [
   { key: "hero_carousel", isEnabled: true, sortOrder: 1 },
-  { key: "trust_strip", isEnabled: true, sortOrder: 2 },
-  { key: "category_showcase", isEnabled: true, sortOrder: 3 },
-  { key: "featured_products", isEnabled: true, sortOrder: 4 },
-  { key: "why_calvin", isEnabled: true, sortOrder: 5 },
-  { key: "how_it_works", isEnabled: true, sortOrder: 6 },
-  { key: "faq", isEnabled: true, sortOrder: 7 },
-  { key: "newsletter", isEnabled: true, sortOrder: 8 },
+  { key: "category_showcase", isEnabled: true, sortOrder: 2 },
+  { key: "emi_showcase", isEnabled: true, sortOrder: 3 },
+  { key: "trust_strip", isEnabled: true, sortOrder: 4 },
+  { key: "featured_products", isEnabled: true, sortOrder: 5 },
+  { key: "why_calvin", isEnabled: true, sortOrder: 6 },
+  { key: "how_it_works", isEnabled: true, sortOrder: 7 },
+  { key: "faq", isEnabled: true, sortOrder: 8 },
+  { key: "newsletter", isEnabled: true, sortOrder: 9 },
 ];
 
 function getProductImageUrl(
   storagePath: string | null | undefined,
   supabaseUrl: string
 ): string {
-  if (!storagePath) return "/images/calvin-aatamaker-logo.png";
+  if (!storagePath) return "/images/compact-atta-chakki.jpeg";
   if (/^https?:\/\//i.test(storagePath)) return storagePath;
 
   const clean = storagePath
@@ -99,7 +102,7 @@ export default async function HomePage() {
   // 1. Fetch active categories
   const { data: rawCategories } = await supabase
     .from("categories")
-    .select("id, name, slug, image_path, sort_order")
+    .select("id, name, slug, description, image_path, sort_order, is_active")
     .eq("is_active", true)
     .order("sort_order", { ascending: true });
 
@@ -148,6 +151,12 @@ export default async function HomePage() {
 
     const primaryStoragePath = sortedImages[0]?.storage_path;
     const imageUrl = getProductImageUrl(primaryStoragePath, supabaseUrl);
+    const imageUrls =
+      sortedImages.length > 0
+        ? sortedImages.map((img) =>
+            getProductImageUrl(img.storage_path, supabaseUrl)
+          )
+        : [imageUrl];
 
     return {
       id: p.id,
@@ -167,8 +176,35 @@ export default async function HomePage() {
       category_slug: p.categories?.slug,
       category_id: p.category_id,
       image: imageUrl,
+      images: imageUrls,
     };
   });
+
+  // Calculate dynamic product counts for categories
+  const productCountMap = new Map<string, number>();
+  products.forEach((p) => {
+    if (p.category_id) {
+      productCountMap.set(
+        p.category_id,
+        (productCountMap.get(p.category_id) ?? 0) + 1
+      );
+    }
+  });
+
+  const categoryShowcaseCards: CategoryWithCount[] = (rawCategories ?? []).map(
+    (cat) => ({
+      id: cat.id,
+      name: cat.name,
+      slug: cat.slug,
+      description: cat.description,
+      image_path: cat.image_path,
+      sort_order: cat.sort_order ?? 0,
+      product_count: productCountMap.get(cat.id) ?? 0,
+      image_url: getProductImageUrl(cat.image_path, supabaseUrl),
+      show_on_homepage:
+        (cat as Record<string, unknown>).show_on_homepage !== false,
+    })
+  );
 
   // 3. Fetch CMS Section Configuration
   let dynamicSections: SectionConfigItem[] = DEFAULT_SECTION_ORDER;
@@ -182,12 +218,21 @@ export default async function HomePage() {
     if (cmsSetting) {
       const val = cmsSetting.value || cmsSetting.setting_value;
       if (Array.isArray(val) && val.length > 0) {
-        dynamicSections = (val as Array<Record<string, unknown>>).map((s, idx) => ({
-          key: String(s.key || s.section_key || ""),
-          isEnabled: s.isEnabled !== false && s.is_enabled !== false,
-          sortOrder: typeof s.sortOrder === "number" ? s.sortOrder : typeof s.sort_order === "number" ? s.sort_order : idx + 1,
-          content: typeof s.content === "object" && s.content !== null ? (s.content as Record<string, unknown>) : undefined,
-        }));
+        dynamicSections = (val as Array<Record<string, unknown>>).map((s, idx) => {
+          const key = String(s.key || s.section_key || "");
+          let sortOrder = typeof s.sortOrder === "number" ? s.sortOrder : typeof s.sort_order === "number" ? s.sort_order : idx + 1;
+          // Position category_showcase immediately after hero banner, and emi_showcase immediately after category_showcase
+          if (key === "category_showcase") sortOrder = 2;
+          else if (key === "emi_showcase") sortOrder = 3;
+          else if (key === "trust_strip" && sortOrder <= 3) sortOrder = 4;
+
+          return {
+            key,
+            isEnabled: s.isEnabled !== false && s.is_enabled !== false,
+            sortOrder,
+            content: typeof s.content === "object" && s.content !== null ? (s.content as Record<string, unknown>) : undefined,
+          };
+        });
       }
     } else {
       // Fallback check to homepage_sections table
@@ -197,16 +242,41 @@ export default async function HomePage() {
         .order("sort_order", { ascending: true });
 
       if (tableSections && tableSections.length > 0) {
-        dynamicSections = tableSections.map((s, idx) => ({
-          key: s.section_key,
-          isEnabled: Boolean(s.is_enabled),
-          sortOrder: s.sort_order ?? idx + 1,
-          content: typeof s.content === "object" && s.content !== null ? (s.content as Record<string, unknown>) : undefined,
-        }));
+        dynamicSections = tableSections.map((s, idx) => {
+          const key = s.section_key;
+          let sortOrder = s.sort_order ?? idx + 1;
+          // Position category_showcase immediately after hero banner, and emi_showcase immediately after category_showcase
+          if (key === "category_showcase") sortOrder = 2;
+          else if (key === "emi_showcase") sortOrder = 3;
+          else if (key === "trust_strip" && sortOrder <= 3) sortOrder = 4;
+
+          return {
+            key,
+            isEnabled: Boolean(s.is_enabled),
+            sortOrder,
+            content: typeof s.content === "object" && s.content !== null ? (s.content as Record<string, unknown>) : undefined,
+          };
+        });
       }
     }
   } catch {
     // Retain default section order on network or table absence
+  }
+
+  // Ensure category_showcase and emi_showcase are always included unless explicitly disabled
+  if (!dynamicSections.some((s) => s.key === "category_showcase")) {
+    dynamicSections.push({
+      key: "category_showcase",
+      isEnabled: true,
+      sortOrder: 2,
+    });
+  }
+  if (!dynamicSections.some((s) => s.key === "emi_showcase")) {
+    dynamicSections.push({
+      key: "emi_showcase",
+      isEnabled: true,
+      sortOrder: 3,
+    });
   }
 
   // Sort sections and filter out disabled ones
@@ -225,6 +295,23 @@ export default async function HomePage() {
           case "hero_carousel":
             return <HomepageHero key="hero_carousel" />;
 
+          case "category_showcase":
+            return (
+              <HomepageCategoryShowcase
+                key="category_showcase"
+                categories={categoryShowcaseCards}
+                content={section.content}
+              />
+            );
+
+          case "emi_showcase":
+            return (
+              <HomepageEmiShowcase
+                key="emi_showcase"
+                content={section.content}
+              />
+            );
+
           case "trust_strip":
             return (
               <HomepageTrustStrip
@@ -232,50 +319,6 @@ export default async function HomePage() {
                 content={section.content}
               />
             );
-
-          case "category_showcase":
-            return categories.length > 0 ? (
-              <section
-                key="category_showcase"
-                className="border-b border-stone-200 bg-[#faf6f0] py-8 sm:py-10"
-              >
-                <div className="mx-auto max-w-7xl px-5 sm:px-6">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div>
-                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#b91f32]">
-                        Explore by Category
-                      </span>
-                      <h3 className="mt-1 font-display text-xl font-bold tracking-tight text-stone-900">
-                        Flour Mill Collections
-                      </h3>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2.5">
-                      <Link
-                        href="/products"
-                        className="inline-flex items-center gap-1.5 rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold text-stone-700 shadow-sm transition hover:border-[#b91f32] hover:text-[#b91f32]"
-                      >
-                        <Layers size={13} />
-                        <span>All Categories</span>
-                      </Link>
-
-                      {categories.map((cat) => (
-                        <Link
-                          key={cat.id}
-                          href={`/products?category=${encodeURIComponent(
-                            cat.slug || cat.id
-                          )}`}
-                          className="inline-flex items-center gap-1.5 rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold text-stone-700 shadow-sm transition hover:border-[#b91f32] hover:text-[#b91f32]"
-                        >
-                          <span>{cat.name}</span>
-                          <ArrowRight size={12} className="text-stone-400" />
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </section>
-            ) : null;
 
           case "featured_products":
             return (

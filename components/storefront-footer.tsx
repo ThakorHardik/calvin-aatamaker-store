@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ShieldCheck } from "lucide-react";
 
 type NavLinkItem = {
   id: string;
@@ -28,7 +28,10 @@ export default function StorefrontFooter() {
       const raw = localStorage.getItem("calvin-nav-menus");
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed.footerLegalLinks) && parsed.footerLegalLinks.length > 0) {
+        if (
+          Array.isArray(parsed.footerLegalLinks) &&
+          parsed.footerLegalLinks.length > 0
+        ) {
           setLegalLinks(parsed.footerLegalLinks);
         }
       }
@@ -38,54 +41,93 @@ export default function StorefrontFooter() {
   }, []);
 
   return (
-    <footer className="site-footer">
-      <div className="footer-main">
-        <Link
-          href="/"
-          className="footer-logo"
-          aria-label="Calvin Aatamaker home"
-        >
-          <Image
-            src="/images/calvin-aatamaker-logo.png"
-            alt="Calvin Aatamaker"
-            width={150}
-            height={65}
-          />
-        </Link>
-
-        <p>
-          Fresh flour feels like home.
-          <br />A more thoughtful way to mill every day.
-        </p>
-
-        <nav className="footer-nav" aria-label="Footer navigation">
-          <Link href="/products">Shop Aatamakers</Link>
-          <Link href="/#why-calvin">Our approach</Link>
-          <Link href="/pages/contact">Contact Support</Link>
-          {legalLinks.map((link) => (
+    <footer
+      className="site-footer border-t border-[#D9B88F]/25 bg-[#141211] text-[#FAF7F2]"
+      aria-label="Site footer"
+    >
+      <div className="mx-auto max-w-7xl px-5 py-12 sm:px-6 sm:py-16">
+        <div className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between lg:gap-12">
+          {/* Brand info */}
+          <div className="max-w-sm">
             <Link
-              key={link.id}
-              href={link.href}
-              target={link.isExternal ? "_blank" : undefined}
-              rel={link.isExternal ? "noopener noreferrer" : undefined}
+              href="/"
+              className="inline-block"
+              aria-label="Calvin Aatamaker home"
             >
-              {link.label}
+              <Image
+                src="/images/calvin-aatamaker-logo.png"
+                alt="Calvin Aatamaker"
+                width={140}
+                height={60}
+                className="h-auto w-28 brightness-0 invert opacity-95 transition-opacity hover:opacity-100 sm:w-32"
+              />
             </Link>
-          ))}
-        </nav>
-      </div>
 
-      <div className="footer-bottom">
-        <span>© {year} Calvin Aatamaker. All rights reserved.</span>
+            <p className="mt-4 text-xs leading-relaxed text-[#A8A29E] sm:text-sm">
+              Fresh flour feels like home.
+              <br />A more thoughtful, natural way to mill flour every day.
+            </p>
 
-        <span className="demo-notice">
-          Website preview · Product prices and contact details are subject to
-          confirmation.
-        </span>
+            <div className="mt-4 flex items-center gap-2 text-[11px] font-medium text-[#D9B88F]">
+              <ShieldCheck className="h-4 w-4 text-[#D9B88F]" />
+              <span>Engineered for Indian Modular Kitchens</span>
+            </div>
+          </div>
 
-        <Link href="/admin">
-          Admin panel <ArrowRight size={13} />
-        </Link>
+          {/* Navigation Links */}
+          <nav
+            className="flex flex-wrap gap-x-8 gap-y-3 md:justify-end"
+            aria-label="Footer navigation"
+          >
+            <Link
+              href="/products"
+              className="text-xs font-semibold text-[#EDE0CF] transition-colors hover:text-[#D9B88F] sm:text-sm"
+            >
+              Shop Aatamakers
+            </Link>
+            <Link
+              href="/#why-calvin"
+              className="text-xs font-semibold text-[#EDE0CF] transition-colors hover:text-[#D9B88F] sm:text-sm"
+            >
+              Our Approach
+            </Link>
+            <Link
+              href="/pages/contact"
+              className="text-xs font-semibold text-[#EDE0CF] transition-colors hover:text-[#D9B88F] sm:text-sm"
+            >
+              Contact Support
+            </Link>
+            {legalLinks.map((link) => (
+              <Link
+                key={link.id}
+                href={link.href}
+                target={link.isExternal ? "_blank" : undefined}
+                rel={link.isExternal ? "noopener noreferrer" : undefined}
+                className="text-xs text-[#A8A29E] transition-colors hover:text-[#FAF7F2] sm:text-sm"
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+
+        {/* Bottom Bar */}
+        <div className="mt-10 flex flex-col gap-4 border-t border-white/10 pt-6 text-xs text-[#8A827D] sm:flex-row sm:items-center sm:justify-between">
+          <span>© {year} Calvin Aatamaker. All rights reserved.</span>
+
+          <span className="text-[11px] text-[#A8A29E]">
+            Website preview · Product prices and contact details are subject to
+            confirmation.
+          </span>
+
+          <Link
+            href="/admin"
+            className="inline-flex items-center gap-1.5 font-semibold text-[#D9B88F] transition-colors hover:text-white"
+          >
+            <span>Admin panel</span>
+            <ArrowRight size={13} />
+          </Link>
+        </div>
       </div>
     </footer>
   );

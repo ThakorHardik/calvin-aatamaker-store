@@ -1,83 +1,90 @@
 .section {
-  padding: 84px 24px;
-  background: #f7f3ec;
-  color: #282220;
+  padding: clamp(72px, 8vw, 104px) 24px;
+  background: #f5efe6;
+  color: #141211;
+  border-bottom: 1px solid #eae3d8;
 }
 
 .container {
   display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
   align-items: start;
-  gap: clamp(42px, 8vw, 110px);
+  gap: clamp(42px, 7vw, 100px);
   width: 100%;
-  max-width: 1240px;
+  max-width: 1280px;
   margin: 0 auto;
 }
 
 .intro {
-  max-width: 460px;
+  max-width: 480px;
 }
 
 .eyebrow {
   margin: 0;
-  color: #ae2032;
-  font-size: 12px;
+  color: #bd2031;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
 }
 
 .heading {
-  margin: 20px 0 0;
-  font-size: clamp(38px, 4.2vw, 58px);
+  margin: 18px 0 0;
+  font-family: var(--font-display, "Manrope", sans-serif);
+  font-size: clamp(34px, 4vw, 54px);
   font-weight: 650;
-  line-height: 1.08;
-  letter-spacing: -0.055em;
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+  color: #141211;
 }
 
 .heading span {
-  color: #b91f32;
-  font-weight: 450;
+  color: #bd2031;
+  font-weight: 400;
+  font-style: italic;
 }
 
 .description {
-  max-width: 410px;
-  margin: 22px 0 0;
-  color: #746960;
+  max-width: 440px;
+  margin: 20px 0 0;
+  color: #5e5854;
   font-size: 14px;
-  line-height: 1.9;
+  line-height: 1.8;
 }
 
 .link {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 25px;
-  padding: 0 0 7px;
-  border-bottom: 1px solid #b91f32;
-  color: #a51d2d;
+  gap: 8px;
+  margin-top: 24px;
+  padding: 0 0 4px;
+  border-bottom: 1px solid #bd2031;
+  color: #bd2031;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   text-decoration: none;
-  transition: gap 180ms ease;
+  transition: gap 180ms ease, color 180ms ease;
 }
 
 .link:hover {
-  gap: 15px;
+  gap: 12px;
+  color: #991b2b;
 }
 
 .link:focus-visible,
 .question:focus-visible {
-  outline: 3px solid #d9aa63;
+  outline: 3px solid #d9b88f;
   outline-offset: 4px;
 }
 
 .faqList {
   min-width: 0;
-  border-top: 1px solid #ded4c8;
+  border-top: 1px solid #eae3d8;
 }
 
 .item {
-  border-bottom: 1px solid #ded4c8;
+  border-bottom: 1px solid #eae3d8;
+  transition: background 200ms ease;
 }
 
 .question {
@@ -86,15 +93,15 @@
   justify-content: space-between;
   gap: 18px;
   width: 100%;
-  min-height: 78px;
-  padding: 20px 2px;
+  min-height: 74px;
+  padding: 20px 4px;
   border: 0;
   background: transparent;
-  color: #282220;
-  font: inherit;
+  color: #141211;
+  font-family: var(--font-display, "Manrope", sans-serif);
   font-size: 16px;
-  font-weight: 650;
-  line-height: 1.5;
+  font-weight: 600;
+  line-height: 1.45;
   text-align: left;
   cursor: pointer;
 }
@@ -103,12 +110,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  border: 1px solid #e1d4c9;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border: 1px solid #eae3d8;
   border-radius: 50%;
-  color: #a51d2d;
+  background: #ffffff;
+  color: #141211;
+  box-shadow: 0 1px 2px rgba(20, 18, 17, 0.04);
   transition:
     color 180ms ease,
     border-color 180ms ease,
@@ -117,30 +126,30 @@
 
 .question:hover .toggle,
 .itemOpen .toggle {
-  border-color: #b91f32;
-  background: #b91f32;
-  color: #fffaf5;
+  border-color: #141211;
+  background: #141211;
+  color: #d9b88f;
 }
 
 .answer {
-  padding: 0 48px 23px 2px;
+  padding: 0 44px 22px 4px;
 }
 
 .answer p {
-  max-width: 520px;
+  max-width: 540px;
   margin: 0;
-  color: #746960;
+  color: #5e5854;
   font-size: 13px;
-  line-height: 1.9;
+  line-height: 1.8;
 }
 
 .itemOpen .question {
-  color: #a51d2d;
+  color: #141211;
 }
 
 @media (max-width: 800px) {
   .section {
-    padding: 62px 22px;
+    padding: 60px 20px;
   }
 
   .container {
@@ -153,52 +162,49 @@
   }
 
   .heading {
-    font-size: clamp(38px, 7vw, 50px);
-  }
-
-  .description {
-    margin-top: 17px;
+    font-size: clamp(32px, 6vw, 44px);
   }
 
   .question {
-    min-height: 72px;
+    min-height: 68px;
     font-size: 15px;
   }
 }
 
 @media (max-width: 480px) {
   .section {
-    padding: 48px 18px;
+    padding: 48px 16px;
   }
 
   .heading {
-    margin-top: 15px;
-    font-size: clamp(35px, 9vw, 43px);
+    margin-top: 14px;
+    font-size: clamp(28px, 8.5vw, 36px);
   }
 
   .description {
     font-size: 13px;
-    line-height: 1.8;
+    line-height: 1.7;
   }
 
   .question {
     gap: 12px;
-    padding: 18px 0;
+    padding: 16px 0;
     font-size: 14px;
   }
 
   .toggle {
-    width: 32px;
-    height: 32px;
-    flex-basis: 32px;
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
   }
 
   .answer {
-    padding: 0 38px 20px 0;
+    padding: 0 10px 18px 0;
   }
 
   .answer p {
     font-size: 12px;
+    line-height: 1.7;
   }
 }
 

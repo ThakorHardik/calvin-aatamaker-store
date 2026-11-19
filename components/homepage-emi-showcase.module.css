@@ -1,0 +1,183 @@
+.section {
+  position: relative;
+  background-color: #FAF7F2;
+  border-bottom: 1px solid #EAE3D8;
+  padding: clamp(48px, 6vw, 68px) 0;
+  overflow: hidden;
+}
+
+.container {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.header {
+  text-align: center;
+  max-width: 640px;
+  margin: 0 auto clamp(28px, 4vw, 40px);
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #8C6239;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.eyebrowLine {
+  width: 24px;
+  height: 1px;
+  background-color: #D9B88F;
+}
+
+.heading {
+  font-family: var(--font-display, "Manrope", sans-serif);
+  font-size: clamp(24px, 3.2vw, 36px);
+  font-weight: 700;
+  color: #141211;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  margin: 0 0 10px;
+}
+
+.subheading {
+  font-size: clamp(14px, 1.5vw, 16px);
+  color: #5E5854;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.marqueeWrapper {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  padding: 12px 0;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 10%,
+    black 90%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 10%,
+    black 90%,
+    transparent 100%
+  );
+}
+
+.marqueeTrack {
+  display: flex;
+  width: max-content;
+  will-change: transform;
+  animation: marquee 30s linear infinite;
+}
+
+.marqueeTrack:hover {
+  animation-play-state: paused;
+}
+
+.marqueeGroup {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding-right: 18px;
+}
+
+.bankPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background-color: #FFFFFF;
+  border: 1px solid #EAE3D8;
+  border-radius: 9999px;
+  box-shadow: 0 1px 3px rgba(20, 18, 17, 0.03);
+  transition: all 0.25s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.bankPill:hover {
+  border-color: #D9B88F;
+  box-shadow: 0 4px 12px rgba(217, 184, 143, 0.2);
+  transform: translateY(-2px);
+}
+
+.bankLogo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.bankName {
+  font-size: 14px;
+  font-weight: 600;
+  color: #141211;
+  letter-spacing: -0.01em;
+}
+
+.bankBadge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8C6239;
+  background-color: #FAF2E8;
+  border: 1px solid #EDE0CF;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  letter-spacing: 0.02em;
+}
+
+.disclaimerWrapper {
+  text-align: center;
+  margin-top: clamp(20px, 3vw, 28px);
+  padding: 0 16px;
+}
+
+.disclaimerText {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #8A827D;
+  background-color: rgba(234, 227, 216, 0.35);
+  border: 1px solid #EAE3D8;
+  padding: 4px 14px;
+  border-radius: 9999px;
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marqueeTrack {
+    animation: none;
+    overflow-x: auto;
+    scroll-behavior: smooth;
+    padding-bottom: 8px;
+  }
+  .marqueeWrapper {
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+}

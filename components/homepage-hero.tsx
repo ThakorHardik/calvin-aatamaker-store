@@ -1,8 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, ArrowUpRight, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  ArrowUpRight,
+  Palette,
+  ShieldCheck,
+  Sparkles,
+  Wheat,
+} from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import styles from "./homepage-hero.module.css";
 
@@ -20,6 +29,8 @@ type Banner = {
   starts_at: string | null;
   ends_at: string | null;
 };
+
+const DEFAULT_BANNER_FALLBACK_IMAGE = "/images/compact-atta-chakki-source.jpeg";
 
 function getMediaUrl(path: string): string {
   const value = path.trim();
@@ -72,7 +83,7 @@ function isAvailableNow(banner: Banner, now: number): boolean {
 }
 
 function getDuration(banner: Banner): number {
-  const seconds = Number(banner.display_seconds) || 5;
+  const seconds = Number(banner.display_seconds) || 6;
 
   return Math.min(30, Math.max(3, seconds));
 }
@@ -153,59 +164,35 @@ export default function HomepageHero() {
     setMediaFailed(false);
   }
 
-  const banner = banners[activeIndex];
+  const currentBanner = banners[activeIndex];
 
-  if (loading || banners.length === 0 || !banner) {
-    return (
-      <section
-        className={`${styles.hero} ${styles.fallback}`}
-        aria-label="Calvin Aatamaker introduction"
-      >
-        <div className={styles.arch} aria-hidden="true" />
+  // Fallback banner structure when database returns empty or during loading
+  const effectiveBanner: Banner = currentBanner ?? {
+    id: "fallback-hero-banner",
+    title: "Fresh flour. Feels like home.",
+    subtitle:
+      "Bring the goodness of freshly milled flour into your everyday kitchen. 100% natural nutrition, stone-ground purity, and bespoke front panel personalization.",
+    media_type: "image",
+    media_path: DEFAULT_BANNER_FALLBACK_IMAGE,
+    alt_text: "Calvin Compact Domestic Aatamaker Promotional Banner",
+    button_label: "Explore Aatamakers",
+    button_href: "/products",
+    sort_order: 1,
+    display_seconds: 6,
+    starts_at: null,
+    ends_at: null,
+  };
 
-        <div className={styles.fallbackDecor} aria-hidden="true">
-          <span className={styles.wheatMark}>✳</span>
-        </div>
+  const isVideo = effectiveBanner.media_type.toLowerCase() === "video";
+  const mediaSrc =
+    effectiveBanner.media_path === DEFAULT_BANNER_FALLBACK_IMAGE
+      ? DEFAULT_BANNER_FALLBACK_IMAGE
+      : getMediaUrl(effectiveBanner.media_path);
 
-        <div className={styles.heroContent}>
-          <span className={styles.eyebrow}>
-            <Sparkles size={15} aria-hidden="true" />
-            Thoughtfully made for Indian homes
-          </span>
-
-          <h1 className={styles.headline}>
-            Fresh flour.
-            <span className={styles.headlineAccent}>Feels like home.</span>
-          </h1>
-
-          <p className={styles.description}>
-            Bring the goodness of freshly milled flour into your everyday
-            kitchen.
-          </p>
-
-          <Link className={styles.cta} href="/products">
-            Explore Aatamakers
-            <ArrowUpRight size={18} aria-hidden="true" />
-          </Link>
-
-          <p className={styles.smallNote}>
-            Made for home. Made for everyday life.
-          </p>
-        </div>
-
-        {loading && (
-          <span className={styles.loadingNote} role="status">
-            Loading store promotions…
-          </span>
-        )}
-      </section>
-    );
-  }
-
-  const isVideo = banner.media_type.toLowerCase() === "video";
-  const mediaSrc = getMediaUrl(banner.media_path);
-  const destination = getSafeHref(banner.button_href);
+  const destination = getSafeHref(effectiveBanner.button_href);
   const isExternal = /^https?:\/\//i.test(destination);
+  const primaryButtonLabel =
+    effectiveBanner.button_label?.trim() || "Explore Aatamakers";
 
   return (
     <section
@@ -213,7 +200,10 @@ export default function HomepageHero() {
       aria-label="Featured Calvin Aatamaker promotions"
       aria-roledescription="carousel"
     >
-      <div className={styles.mediaLayer} key={banner.id}>
+      {/* ------------------------------------------------------------------
+          1. FULL-BLEED BACKGROUND MEDIA LAYER (Image or Video)
+         ------------------------------------------------------------------ */}
+      <div className={styles.mediaLayer} key={effectiveBanner.id}>
         {!mediaFailed &&
           (isVideo ? (
             <video
@@ -224,64 +214,115 @@ export default function HomepageHero() {
               loop
               playsInline
               preload="metadata"
-              aria-label={banner.alt_text || banner.title}
+              aria-label={effectiveBanner.alt_text || effectiveBanner.title}
               className={styles.media}
               onError={() => setMediaFailed(true)}
             />
           ) : (
-            <img
-              key={mediaSrc}
-              src={mediaSrc}
-              alt={banner.alt_text || banner.title}
+            <Image
+              key={mediaFailed ? "fallback-media" : mediaSrc}
+              src={mediaFailed ? DEFAULT_BANNER_FALLBACK_IMAGE : mediaSrc}
+              alt={effectiveBanner.alt_text || effectiveBanner.title}
+              fill
+              priority
+              unoptimized={mediaSrc.startsWith("http")}
               className={styles.media}
               onError={() => setMediaFailed(true)}
             />
           ))}
       </div>
 
+      {/* ------------------------------------------------------------------
+          2. SOPHISTICATED EDITORIAL GRADIENT OVERLAY
+         ------------------------------------------------------------------ */}
       <div className={styles.imageOverlay} aria-hidden="true" />
-      <div className={styles.arch} aria-hidden="true" />
 
-      <div className={styles.heroContent} key={`${banner.id}-content`}>
-        <span className={styles.eyebrow}>
-          <Sparkles size={15} aria-hidden="true" />
-          Calvin Aatamaker
-        </span>
+      {/* ------------------------------------------------------------------
+          3. EDITORIAL BRAND CONTENT ON TOP OF MOVING BANNER
+         ------------------------------------------------------------------ */}
+      <div className={styles.heroContainer}>
+        <div className={styles.heroContent} key={`${effectiveBanner.id}-content`}>
+          <div className={styles.eyebrow}>
+            <span className={styles.eyebrowIcon} aria-hidden="true">
+              <Wheat size={14} />
+            </span>
+            <span>Calvin Aatamaker</span>
+            <span className={styles.eyebrowDot}>•</span>
+            <span>Domestic Atta Chakki</span>
+          </div>
 
-        <h1 className={styles.headline}>{banner.title}</h1>
+          <h1 className={styles.headline}>
+            {effectiveBanner.title}
+          </h1>
 
-        {banner.subtitle && (
-          <p className={styles.description}>{banner.subtitle}</p>
-        )}
+          {effectiveBanner.subtitle && (
+            <p className={styles.description}>{effectiveBanner.subtitle}</p>
+          )}
 
-        {banner.button_label &&
-          (isExternal ? (
-            <a
-              className={styles.cta}
-              href={destination}
-              target="_blank"
-              rel="noopener noreferrer"
+          {/* Value Highlights Strip */}
+          <div className={styles.valueHighlightStrip}>
+            <div className={styles.highlightPill}>
+              <Wheat size={13} className={styles.highlightIcon} aria-hidden="true" />
+              <span>100% Stone-Ground</span>
+            </div>
+            <div className={styles.highlightPill}>
+              <Palette size={13} className={styles.highlightIcon} aria-hidden="true" />
+              <span>Personalised Art Panel</span>
+            </div>
+            <div className={styles.highlightPill}>
+              <ShieldCheck size={13} className={styles.highlightIcon} aria-hidden="true" />
+              <span>5-Year Motor Warranty</span>
+            </div>
+          </div>
+
+          {/* Call to Action Buttons */}
+          <div className={styles.actionGroup}>
+            {isExternal ? (
+              <a
+                className={styles.primaryCta}
+                href={destination}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span>{primaryButtonLabel}</span>
+                <ArrowUpRight size={17} aria-hidden="true" />
+              </a>
+            ) : (
+              <Link className={styles.primaryCta} href={destination}>
+                <span>{primaryButtonLabel}</span>
+                <ArrowRight size={17} aria-hidden="true" />
+              </Link>
+            )}
+
+            <Link
+              className={styles.secondaryCta}
+              href="/products/compact-domestic-aatamaker/customize"
             >
-              {banner.button_label}
-              <ArrowUpRight size={18} aria-hidden="true" />
-            </a>
-          ) : (
-            <Link className={styles.cta} href={destination}>
-              {banner.button_label}
-              <ArrowUpRight size={18} aria-hidden="true" />
+              <Sparkles size={16} className={styles.highlightIcon} aria-hidden="true" />
+              <span>Personalise Machine</span>
             </Link>
-          ))}
+          </div>
+        </div>
       </div>
 
       {mediaFailed && (
         <div className={styles.mediaError} role="status">
-          The banner image or video could not be loaded.
+          The primary banner asset could not be reached; showing genuine product fallback.
         </div>
       )}
 
+      {loading && (
+        <span className={styles.loadingNote} role="status">
+          Updating promotions…
+        </span>
+      )}
+
+      {/* ------------------------------------------------------------------
+          4. REFINED CAROUSEL CONTROLS (Active when multiple slides exist)
+         ------------------------------------------------------------------ */}
       {banners.length > 1 && (
         <div className={styles.controls}>
-          <div className={styles.pagination} aria-label="Choose a banner">
+          <div className={styles.pagination} aria-label="Choose a promotion">
             {banners.map((item, index) => (
               <button
                 key={item.id}
@@ -289,7 +330,7 @@ export default function HomepageHero() {
                 className={`${styles.dot} ${
                   index === activeIndex ? styles.dotActive : ""
                 }`}
-                aria-label={`Show banner ${index + 1}: ${item.title}`}
+                aria-label={`Show promotion ${index + 1}: ${item.title}`}
                 aria-current={index === activeIndex ? "true" : undefined}
                 onClick={() => {
                   setActiveIndex(index);
@@ -309,18 +350,18 @@ export default function HomepageHero() {
               className={styles.arrowButton}
               type="button"
               onClick={showPrevious}
-              aria-label="Previous banner"
+              aria-label="Previous promotion"
             >
-              <ArrowLeft size={18} />
+              <ArrowLeft size={16} />
             </button>
 
             <button
               className={styles.arrowButton}
               type="button"
               onClick={showNext}
-              aria-label="Next banner"
+              aria-label="Next promotion"
             >
-              <ArrowRight size={18} />
+              <ArrowRight size={16} />
             </button>
           </div>
         </div>

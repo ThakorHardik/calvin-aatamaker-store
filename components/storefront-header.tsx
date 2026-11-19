@@ -222,6 +222,32 @@ export default function StorefrontHeader({
     }
   }
 
+  function isLinkActive(href: string): boolean {
+    if (!href) return false;
+    if (href === "/pages/contact") {
+      return pathname.startsWith("/pages/contact");
+    }
+    if (href === "/account") {
+      return pathname.startsWith("/account");
+    }
+    if (href === "/login") {
+      return pathname.startsWith("/login");
+    }
+    if (href === "/cart") {
+      return pathname.startsWith("/cart");
+    }
+    if (href.endsWith("#shop") && (pathname === "/products" || pathname.startsWith("/products/"))) {
+      return true;
+    }
+    if (href === "/products" && (pathname === "/products" || pathname.startsWith("/products/"))) {
+      return true;
+    }
+    if (href === "/" && pathname === "/") {
+      return true;
+    }
+    return pathname === href;
+  }
+
   return (
     <>
       {announcement.enabled && (
@@ -256,9 +282,10 @@ export default function StorefrontHeader({
           <Image
             src="/images/calvin-aatamaker-logo.png"
             alt="Calvin Aatamaker logo"
-            width={168}
-            height={74}
+            width={140}
+            height={60}
             priority
+            className="h-[38px] sm:h-[42px] w-auto max-w-[142px] object-contain"
           />
         </Link>
 
@@ -272,6 +299,7 @@ export default function StorefrontHeader({
               <Link
                 key={link.id}
                 href={link.href}
+                className={isLinkActive(link.href) ? "nav-link-active" : undefined}
                 target={link.isExternal ? "_blank" : undefined}
                 rel={link.isExternal ? "noopener noreferrer" : undefined}
                 onClick={closeMenu}
@@ -281,19 +309,35 @@ export default function StorefrontHeader({
             ))
           ) : (
             <>
-              <Link href={`${homePrefix}#shop`} onClick={closeMenu}>
+              <Link
+                href={`${homePrefix}#shop`}
+                className={isLinkActive(`${homePrefix}#shop`) ? "nav-link-active" : undefined}
+                onClick={closeMenu}
+              >
                 Shop Aatamakers
               </Link>
 
-              <Link href={`${homePrefix}#why-calvin`} onClick={closeMenu}>
+              <Link
+                href={`${homePrefix}#why-calvin`}
+                className={isLinkActive(`${homePrefix}#why-calvin`) ? "nav-link-active" : undefined}
+                onClick={closeMenu}
+              >
                 Why Calvin
               </Link>
 
-              <Link href={`${homePrefix}#personalise`} onClick={closeMenu}>
+              <Link
+                href={`${homePrefix}#personalise`}
+                className={isLinkActive(`${homePrefix}#personalise`) ? "nav-link-active" : undefined}
+                onClick={closeMenu}
+              >
                 Personalise
               </Link>
 
-              <Link href="/pages/contact" onClick={closeMenu}>
+              <Link
+                href="/pages/contact"
+                className={isLinkActive("/pages/contact") ? "nav-link-active" : undefined}
+                onClick={closeMenu}
+              >
                 Help &amp; support
               </Link>
             </>
@@ -301,6 +345,7 @@ export default function StorefrontHeader({
 
           <Link
             href={isAuthenticated ? "/account" : "/login"}
+            className={isLinkActive(isAuthenticated ? "/account" : "/login") ? "nav-link-active" : undefined}
             onClick={closeMenu}
           >
             {isAuthenticated ? "My Account" : "Sign In"}
